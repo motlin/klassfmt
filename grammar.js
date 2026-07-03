@@ -27,6 +27,12 @@ module.exports = grammar({
 
   word: $ => $.identifier_token,
 
+  conflicts: $ => [
+    // A '/' after url path segments can either close the url (trailing slash)
+    // or begin another segment; GLR resolves this with one token of lookahead.
+    [$.url, $.url_path_segment],
+  ],
+
   rules: {
     compilation_unit: $ => seq(
       $.package_declaration,
@@ -191,12 +197,16 @@ module.exports = grammar({
     url_parameter_declaration: $ => seq('{', $.parameter_declaration, '}'),
 
     service_declaration: $ => seq($.verb, $.service_block),
-    service_block: $ => seq('{', $.service_body, '}'),
-    service_body: $ => seq(
+    // ANTLR's serviceBody is inlined here: every part is optional, and an empty
+    // service block ("GET {}") is legal, so a standalone body rule would match
+    // the empty string, which tree-sitter forbids.
+    service_block: $ => seq(
+      '{',
       optional($.service_multiplicity_declaration),
       repeat($.service_criteria_declaration),
       optional($.service_projection_dispatch),
       optional($.service_order_by_declaration),
+      '}',
     ),
     service_multiplicity_declaration: $ => seq('multiplicity', ':', $.service_multiplicity, ';'),
     service_multiplicity: $ => choice('one', 'many'),
@@ -329,10 +339,12 @@ module.exports = grammar({
       field('upper_bound', choice($.integer_literal_token, '*')),
     ),
 
-    primitive_type: $ => choice(
+    // Prefer reading a known primitive-type keyword as a primitive_type rather
+    // than an identifier when both are possible (e.g. the type in "x : Boolean;").
+    primitive_type: $ => prec(1, choice(
       'Boolean', 'Integer', 'Long', 'Double', 'Float', 'String',
       'Instant', 'LocalDate', 'TemporalInstant', 'TemporalRange',
-    ),
+    )),
 
     // ---- modifiers ----
     classifier_modifier: $ => choice(
@@ -404,7 +416,9 @@ module.exports = grammar({
       $.type_member_reference_path,
     ),
     literal_list: $ => seq('(', sep1($.literal, ','), ')'),
-    native_literal: $ => 'user',
+    // 'user' in an expression-value position is the native literal, not an
+    // identifier; prefer that reading (matches ANTLR's dedicated alternative).
+    native_literal: $ => prec(1, 'user'),
 
     operator: $ => choice(
       $.equality_operator,
@@ -488,8 +502,8 @@ module.exports = grammar({
     null_literal: $ => 'null',
 
     // ---- lexer tokens ----
-    // Identifier: JavaLetter JavaLetterOrDigit* (approximated to [a-zA-Z$_] plus unicode letters).
-    identifier_token: $ => /[a-zA-Z$_ -￿][a-zA-Z0-9$_ -￿]*/,
+    // Identifier: JavaLetter JavaLetterOrDigit* (ASCII letters/$/_ plus non-ASCII code points).
+    identifier_token: $ => /[a-zA-Z_$\u0080-\uFFFF][a-zA-Z0-9_$\u0080-\uFFFF]*/,
 
     // UrlIdentifier: [a-zA-Z][a-zA-Z0-9_]*'-'[a-zA-Z0-9_-]* (must contain a dash).
     url_identifier_token: $ => /[a-zA-Z][a-zA-Z0-9_]*-[a-zA-Z0-9_-]*/,
