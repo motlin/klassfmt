@@ -1,0 +1,8 @@
+package com.errors
+
+user User
+    systemTemporal
+    versioned
+{
+    userId          : Instant key userId;
+}

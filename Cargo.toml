@@ -1,0 +1,16 @@
+[package]
+name = "klassfmt"
+version = "0.1.0"
+edition = "2021"
+description = "A standalone formatter for the Klass DSL"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tree-sitter = "0.22"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]

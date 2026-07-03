@@ -1,0 +1,15 @@
+package example
+
+class AbstractSuperClass
+    abstract
+{
+    key: Long key id;
+    string: String;
+}
+
+class ConcreteSubClass
+    extends AbstractSuperClass
+    transient
+{
+    key: Long key id;
+}

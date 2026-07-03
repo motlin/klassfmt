@@ -1,0 +1,33 @@
+package scratch
+
+// TODO #2: Macros on the parents and children should not result in duplicate fields
+class SuperClassWithSameMacro
+    abstract
+    systemTemporal
+    versioned
+{
+    key: String key;
+    parentData: String;
+}
+
+class SubClassWithSameMacro
+    extends SuperClassWithSameMacro
+    systemTemporal
+    versioned
+{
+    childData: String;
+}
+
+// #4: Temporal interface
+interface TemporalInterface
+    systemTemporal
+{
+    key: String key;
+}
+
+class TemporalClass
+    implements TemporalInterface
+    systemTemporal
+{
+    key: String key;
+}
