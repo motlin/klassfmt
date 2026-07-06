@@ -347,9 +347,15 @@ impl<'a> Printer<'a> {
         let (head, order_by) = self.end_like(node);
         match order_by {
             None => head.append(RcDoc::text(";")),
-            Some(ob) => head
-                .append(self.order_by_declaration(ob).nest(2 * INDENT))
-                .append(RcDoc::text(";")),
+            Some(ob) => {
+                // The orderBy clause is separated from the end by a space when it
+                // fits on the line, or a newline (indented two levels) when the
+                // whole end declaration is too wide. `group` picks per instance.
+                let clause = RcDoc::line()
+                    .append(self.order_by_declaration(ob))
+                    .nest(INDENT);
+                head.append(clause).append(RcDoc::text(";")).group()
+            }
         }
     }
 
@@ -458,11 +464,11 @@ impl<'a> Printer<'a> {
                 MemberDoc::aligned_with(name, RcDoc::text(self.text(r).to_string()), ",")
             }
             "projection_reference_property" => {
-                // name : { nested }, — the nested block is not colon-aligned with siblings.
+                // name: { nested }, — the nested block's brace opens on the same
+                // line as the member name (unlike top-level declaration blocks).
                 let block = self.child_of_kind(inner, &["projection_block"]).unwrap();
                 let doc = RcDoc::text(name)
-                    .append(RcDoc::text(":"))
-                    .append(RcDoc::hardline())
+                    .append(RcDoc::text(": "))
                     .append(self.projection_block(block))
                     .append(RcDoc::text(","));
                 MemberDoc::unaligned(doc)
@@ -472,8 +478,7 @@ impl<'a> Printer<'a> {
                 let block = self.child_of_kind(inner, &["projection_block"]).unwrap();
                 let doc = RcDoc::text(name)
                     .append(self.argument_list(args))
-                    .append(RcDoc::text(":"))
-                    .append(RcDoc::hardline())
+                    .append(RcDoc::text(": "))
                     .append(self.projection_block(block))
                     .append(RcDoc::text(","));
                 let _ = idx;
@@ -657,11 +662,14 @@ impl<'a> Printer<'a> {
             .filter(|c| c.kind() == "order_by_member_reference_path")
             .map(|c| self.order_by_path(c))
             .collect();
-        // "orderBy: " then comma-separated paths; caller controls indentation.
+        // "orderBy: " then comma-separated paths. When broken, each subsequent
+        // path lands on its own line at the same indent as "orderBy" (the paths
+        // are not further indented past the keyword). The caller wraps this in a
+        // group so it stays inline when it fits.
         let mut doc = RcDoc::text("orderBy: ");
         for (i, p) in paths.into_iter().enumerate() {
             if i > 0 {
-                doc = doc.append(RcDoc::text(",")).append(RcDoc::hardline());
+                doc = doc.append(RcDoc::text(",")).append(RcDoc::line());
             }
             doc = doc.append(p);
         }
@@ -717,24 +725,26 @@ impl<'a> Printer<'a> {
         }
     }
 
-    /// Binary `&&` / `||` chains. Continuation lines lead with the operator and
-    /// are indented two levels, matching the corpus (`experimentalOperatorPosition: start`).
+    /// Binary `&&` / `||` chains. When the whole chain fits within the print
+    /// width it stays on one line; otherwise each continuation operand moves to
+    /// its own line, leading with the operator, indented two levels (matching
+    /// the corpus and `experimentalOperatorPosition: start`).
     fn criteria_binary(&self, node: Node<'a>, op: &'static str) -> Doc<'a> {
         // Flatten a left-associative chain of the same operator into operands.
         let mut operands: Vec<Doc<'a>> = Vec::new();
         self.flatten_criteria(node, op, &mut operands);
 
-        let mut doc = operands.remove(0);
+        let first = operands.remove(0);
         let mut tail = RcDoc::nil();
         for operand in operands {
+            // `line()` becomes a space when flat, a newline when broken.
             tail = tail
-                .append(RcDoc::hardline())
+                .append(RcDoc::line())
                 .append(RcDoc::text(op))
                 .append(RcDoc::text(" "))
                 .append(operand);
         }
-        doc = doc.append(tail.nest(2 * INDENT));
-        doc
+        first.append(tail.nest(2 * INDENT)).group()
     }
 
     fn flatten_criteria(&self, node: Node<'a>, op: &'static str, out: &mut Vec<Doc<'a>>) {
