@@ -27,9 +27,9 @@ class Person
     systemTemporal
     versioned
 {
-    id       : Long id key;
+    id: Long id key;
     firstName: String?;
-    lastName : String?;
+    lastName: String?;
 }
 ";
     assert_formats(input, expected);
@@ -37,13 +37,15 @@ class Person
 
 #[test]
 fn already_canonical_class_is_a_near_noop() {
+    // Canonical style is single-space-after-name (no colon alignment); see the
+    // note on MemberDoc::into_doc for why alignment is not reproduced.
     let canonical = "\
 package com.example
 
 class Person
     systemTemporal
 {
-    id       : Long id key;
+    id: Long id key;
     firstName: String?;
 }
 ";
