@@ -168,8 +168,68 @@ impl<'a> Printer<'a> {
         let inner = self.named_children(node).into_iter().next().unwrap();
         match inner.kind() {
             "data_type_property" => self.data_type_property(inner),
+            "parameterized_property" => self.parameterized_property(inner),
+            "association_end_signature" => self.association_end_signature(inner),
             other => MemberDoc::unaligned(self.verbatim_fallback(inner, other)),
         }
+    }
+
+    // ---- parameterized property ----
+
+    /// `name(params): Ref[m..n] modifier* orderBy? { criteria }`. The criteria
+    /// body opens its own brace on the next line, like a class block.
+    fn parameterized_property(&self, node: Node<'a>) -> MemberDoc<'a> {
+        let children = self.named_children(node);
+        let name = self.text(children[0]);
+        let params: Vec<String> = children
+            .iter()
+            .filter(|c| c.kind() == "parameter_declaration")
+            .map(|c| self.parameter_text(*c))
+            .collect();
+
+        // Right of the ':' — class reference + multiplicity + modifiers.
+        let mut rhs: Vec<Doc<'a>> = Vec::new();
+        let mut order_by = None;
+        let mut criteria = None;
+        for child in &children {
+            match child.kind() {
+                "class_reference" | "classifier_reference" => {
+                    rhs.push(RcDoc::text(self.text(*child).to_string()))
+                }
+                "multiplicity" => {
+                    if let Some(last) = rhs.pop() {
+                        rhs.push(last.append(self.multiplicity(*child)));
+                    }
+                }
+                "parameterized_property_modifier" => {
+                    rhs.push(RcDoc::text(self.text(*child).to_string()))
+                }
+                "order_by_declaration" => order_by = Some(*child),
+                "criteria_expression" => criteria = Some(*child),
+                _ => {}
+            }
+        }
+
+        let mut head = RcDoc::text(format!("{name}({})", params.join(", ")))
+            .append(RcDoc::text(": "))
+            .append(spaced(rhs));
+        if let Some(ob) = order_by {
+            head = head
+                .append(RcDoc::hardline())
+                .append(self.order_by_declaration(ob))
+                .nest(INDENT);
+        }
+
+        // The criteria block: `{` on its own line, expression indented, `}`.
+        let body = match criteria {
+            Some(expr) => RcDoc::text("{")
+                .append(RcDoc::hardline().append(self.criteria_expression(expr)).nest(INDENT))
+                .append(RcDoc::hardline())
+                .append(RcDoc::text("}")),
+            None => RcDoc::text("{").append(RcDoc::hardline()).append(RcDoc::text("}")),
+        };
+
+        MemberDoc::unaligned(head.append(RcDoc::hardline()).append(body))
     }
 
     // ---- data type properties ----
