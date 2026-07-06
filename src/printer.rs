@@ -120,25 +120,27 @@ impl<'a> Printer<'a> {
 
     fn class_header(&self, node: Node<'a>) -> Doc<'a> {
         // classOrUser identifier abstract? extends? implements? serviceMods* classifierMods*
+        // Only the keyword and name stay on the first line; abstract, extends,
+        // implements, and every modifier each get their own indented line.
         let children = self.named_children(node);
-        let mut inline: Vec<Doc<'a>> = Vec::new();
-        let mut modifier_lines: Vec<Doc<'a>> = Vec::new();
+        let mut head: Vec<Doc<'a>> = Vec::new();
+        let mut stacked_lines: Vec<Doc<'a>> = Vec::new();
 
         for child in children {
             match child.kind() {
-                "class_or_user" => inline.push(RcDoc::text(self.text(child).to_string())),
-                "identifier" => inline.push(RcDoc::text(self.text(child).to_string())),
-                "abstract_declaration" => inline.push(RcDoc::text("abstract")),
-                "extends_declaration" => inline.push(self.extends_declaration(child)),
-                "implements_declaration" => inline.push(self.implements_declaration(child)),
+                "class_or_user" => head.push(RcDoc::text(self.text(child).to_string())),
+                "identifier" => head.push(RcDoc::text(self.text(child).to_string())),
+                "abstract_declaration" => stacked_lines.push(RcDoc::text("abstract")),
+                "extends_declaration" => stacked_lines.push(self.extends_declaration(child)),
+                "implements_declaration" => stacked_lines.push(self.implements_declaration(child)),
                 "classifier_modifier" | "class_service_modifier" => {
-                    modifier_lines.push(RcDoc::text(self.text(child).to_string()));
+                    stacked_lines.push(RcDoc::text(self.text(child).to_string()));
                 }
-                other => inline.push(self.verbatim_fallback(child, other)),
+                other => stacked_lines.push(self.verbatim_fallback(child, other)),
             }
         }
 
-        header_with_modifier_lines(spaced(inline), modifier_lines)
+        header_with_modifier_lines(spaced(head), stacked_lines)
     }
 
     fn extends_declaration(&self, node: Node<'a>) -> Doc<'a> {
@@ -235,19 +237,19 @@ impl<'a> Printer<'a> {
     fn interface_header(&self, node: Node<'a>) -> Doc<'a> {
         // 'interface' identifier implements? classifierModifier*
         let children = self.named_children(node);
-        let mut inline: Vec<Doc<'a>> = vec![RcDoc::text("interface")];
-        let mut modifier_lines: Vec<Doc<'a>> = Vec::new();
+        let mut head: Vec<Doc<'a>> = vec![RcDoc::text("interface")];
+        let mut stacked_lines: Vec<Doc<'a>> = Vec::new();
         for child in children {
             match child.kind() {
-                "identifier" => inline.push(RcDoc::text(self.text(child).to_string())),
-                "implements_declaration" => inline.push(self.implements_declaration(child)),
+                "identifier" => head.push(RcDoc::text(self.text(child).to_string())),
+                "implements_declaration" => stacked_lines.push(self.implements_declaration(child)),
                 "classifier_modifier" => {
-                    modifier_lines.push(RcDoc::text(self.text(child).to_string()))
+                    stacked_lines.push(RcDoc::text(self.text(child).to_string()))
                 }
-                other => inline.push(self.verbatim_fallback(child, other)),
+                other => stacked_lines.push(self.verbatim_fallback(child, other)),
             }
         }
-        header_with_modifier_lines(spaced(inline), modifier_lines)
+        header_with_modifier_lines(spaced(head), stacked_lines)
     }
 
     fn interface_block(&self, node: Node<'a>) -> Doc<'a> {
