@@ -325,6 +325,9 @@ impl<'a> Printer<'a> {
         for (i, end) in ends.iter().enumerate() {
             if i > 0 {
                 body = body.append(RcDoc::hardline());
+                if self.blank_line_between(ends[i - 1], ends[i]) {
+                    body = body.append(RcDoc::hardline());
+                }
             }
             body = body.append(self.association_end(*end));
         }
@@ -464,11 +467,16 @@ impl<'a> Printer<'a> {
                 MemberDoc::aligned_with(name, RcDoc::text(self.text(r).to_string()), ",")
             }
             "projection_reference_property" => {
-                // name: { nested }, — the nested block's brace opens on the same
-                // line as the member name (unlike top-level declaration blocks).
+                // name:
+                // {
+                //     nested
+                // },
+                // The nested block's brace opens on its own line, as in the
+                // flagship domain models.
                 let block = self.child_of_kind(inner, &["projection_block"]).unwrap();
                 let doc = RcDoc::text(name)
-                    .append(RcDoc::text(": "))
+                    .append(RcDoc::text(":"))
+                    .append(RcDoc::hardline())
                     .append(self.projection_block(block))
                     .append(RcDoc::text(","));
                 MemberDoc::unaligned(doc)
@@ -478,7 +486,8 @@ impl<'a> Printer<'a> {
                 let block = self.child_of_kind(inner, &["projection_block"]).unwrap();
                 let doc = RcDoc::text(name)
                     .append(self.argument_list(args))
-                    .append(RcDoc::text(": "))
+                    .append(RcDoc::text(":"))
+                    .append(RcDoc::hardline())
                     .append(self.projection_block(block))
                     .append(RcDoc::text(","));
                 let _ = idx;
@@ -895,6 +904,10 @@ impl<'a> Printer<'a> {
         for (i, m) in rendered.into_iter().enumerate() {
             if i > 0 {
                 body = body.append(RcDoc::hardline());
+                // Preserve a single author-inserted blank line between members.
+                if self.blank_line_between(members[i - 1], members[i]) {
+                    body = body.append(RcDoc::hardline());
+                }
             }
             body = body.append(m.into_doc(align_width));
         }
@@ -903,6 +916,14 @@ impl<'a> Printer<'a> {
             .append(RcDoc::hardline().append(body).nest(INDENT))
             .append(RcDoc::hardline())
             .append(RcDoc::text("}"))
+    }
+
+    /// Whether the author left a blank line between two sibling nodes: true when
+    /// the gap between the end of `prev` and the start of `next` spans more than
+    /// one line break (ignoring intervening whitespace only).
+    fn blank_line_between(&self, prev: Node<'a>, next: Node<'a>) -> bool {
+        let gap = &self.source[prev.end_byte()..next.start_byte()];
+        gap.bytes().filter(|b| *b == b'\n').count() > 1
     }
 
     // ---- fallback ----

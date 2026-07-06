@@ -54,6 +54,36 @@ fn line_diff_count(a: &str, b: &str) -> usize {
         .count()
 }
 
+/// Collapse internal whitespace runs (preserving leading indent) so that lines
+/// differing only by colon-alignment padding compare equal. This isolates
+/// "real" structural churn from the deliberately-unreproduced alignment.
+fn normalize_alignment(s: &str) -> String {
+    s.lines()
+        .map(|line| {
+            let indent_len = line.len() - line.trim_start().len();
+            let (indent, rest) = line.split_at(indent_len);
+            let mut collapsed = String::new();
+            let mut prev_space = false;
+            for ch in rest.chars() {
+                if ch == ' ' {
+                    if !prev_space {
+                        collapsed.push(' ');
+                    }
+                    prev_space = true;
+                } else {
+                    collapsed.push(ch);
+                    prev_space = false;
+                }
+            }
+            // Also drop a single space before a colon so aligned `name  :` and
+            // unaligned `name:` compare equal.
+            let collapsed = collapsed.replace(" :", ":");
+            format!("{indent}{}", collapsed.trim_end())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn idempotency() {
     let mut failures = Vec::new();
@@ -126,11 +156,29 @@ fn churn() {
         }
     }
 
+    // Second pass: churn ignoring alignment/whitespace-only differences.
+    let mut struct_changed_files = 0usize;
+    let mut struct_total = 0usize;
+    for path in &files {
+        let src = fs::read_to_string(path).unwrap();
+        if let Ok(formatted) = klassfmt::format(&src) {
+            let d = line_diff_count(&normalize_alignment(&src), &normalize_alignment(&formatted));
+            if d > 0 {
+                struct_changed_files += 1;
+                struct_total += d;
+            }
+        }
+    }
+
     worst.sort_by(|a, b| b.0.cmp(&a.0));
     eprintln!("\n=== corpus churn ===");
     eprintln!("files: {} total, {} changed", files.len(), changed_files);
     eprintln!("total changed lines: {total_line_changes}");
-    eprintln!("worst offenders:");
+    eprintln!(
+        "alignment-insensitive: {} files, {} lines changed",
+        struct_changed_files, struct_total
+    );
+    eprintln!("worst offenders (raw):");
     for (d, name) in worst.iter().take(25) {
         let shown = if *d == usize::MAX { "ERR".to_string() } else { d.to_string() };
         eprintln!("  {shown:>5}  {name}");
