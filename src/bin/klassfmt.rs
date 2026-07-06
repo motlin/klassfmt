@@ -39,9 +39,33 @@ struct Cli {
     #[arg(long, default_value_t = klassfmt::DEFAULT_PRINT_WIDTH)]
     print_width: usize,
 
+    /// Indent with tabs (default). Pass `--use-tabs false` to indent with spaces.
+    #[arg(
+        long,
+        default_value_t = true,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        action = clap::ArgAction::Set,
+    )]
+    use_tabs: bool,
+
+    /// Columns per indentation level (tab display width for wrapping math).
+    #[arg(long, default_value_t = klassfmt::DEFAULT_TAB_WIDTH)]
+    tab_width: usize,
+
     /// Files to format.
     #[arg(value_name = "PATH")]
     paths: Vec<PathBuf>,
+}
+
+impl Cli {
+    fn config(&self) -> klassfmt::Config {
+        klassfmt::Config {
+            print_width: self.print_width,
+            use_tabs: self.use_tabs,
+            tab_width: self.tab_width,
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -59,7 +83,7 @@ fn run_stdin(cli: &Cli) -> ExitCode {
         eprintln!("klassfmt: failed to read stdin");
         return ExitCode::FAILURE;
     }
-    match klassfmt::format_with_width(&input, cli.print_width) {
+    match klassfmt::format_with_config(&input, cli.config()) {
         Ok(formatted) => {
             print!("{formatted}");
             ExitCode::SUCCESS
@@ -90,7 +114,7 @@ fn run_paths(cli: &Cli) -> ExitCode {
             }
         };
 
-        let formatted = match klassfmt::format_with_width(&source, cli.print_width) {
+        let formatted = match klassfmt::format_with_config(&source, cli.config()) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("klassfmt: {}: {e}", path.display());

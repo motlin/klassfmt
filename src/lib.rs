@@ -22,6 +22,35 @@ pub fn language() -> Language {
 /// Matches the klass repo's `.prettierrc.json5` `printWidth`.
 pub const DEFAULT_PRINT_WIDTH: usize = 120;
 
+/// The default number of columns one indentation level occupies.
+///
+/// Matches the klass repo's `.prettierrc.json5` `tabWidth`.
+pub const DEFAULT_TAB_WIDTH: usize = 4;
+
+/// Formatting configuration. Defaults match the klass repo's `.prettierrc.json5`
+/// (`printWidth: 120`, `useTabs: true`, `tabWidth: 4`), so the corpus's
+/// tab-indented convention is reproduced.
+#[derive(Debug, Clone, Copy)]
+pub struct Config {
+    /// Maximum line width before wrapping.
+    pub print_width: usize,
+    /// Indent with a tab per level when true; otherwise `tab_width` spaces.
+    pub use_tabs: bool,
+    /// Columns per indentation level (also the visual width of a tab, used for
+    /// wrapping math).
+    pub tab_width: usize,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            print_width: DEFAULT_PRINT_WIDTH,
+            use_tabs: true,
+            tab_width: DEFAULT_TAB_WIDTH,
+        }
+    }
+}
+
 /// Errors that can occur while formatting.
 #[derive(Debug)]
 pub enum FormatError {
@@ -43,13 +72,25 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
-/// Formats Klass source text using the default print width.
+/// Formats Klass source text using the default configuration.
 pub fn format(source: &str) -> Result<String, FormatError> {
-    format_with_width(source, DEFAULT_PRINT_WIDTH)
+    format_with_config(source, Config::default())
 }
 
-/// Formats Klass source text, wrapping at `width` columns.
+/// Formats Klass source text, wrapping at `width` columns (other settings
+/// default). Retained for convenience; prefer [`format_with_config`].
 pub fn format_with_width(source: &str, width: usize) -> Result<String, FormatError> {
+    format_with_config(
+        source,
+        Config {
+            print_width: width,
+            ..Config::default()
+        },
+    )
+}
+
+/// Formats Klass source text with the given [`Config`].
+pub fn format_with_config(source: &str, config: Config) -> Result<String, FormatError> {
     let mut parser = Parser::new();
     parser
         .set_language(&language())
@@ -61,7 +102,7 @@ pub fn format_with_width(source: &str, width: usize) -> Result<String, FormatErr
         return Err(FormatError::SyntaxError { message });
     }
 
-    Ok(printer::print(root, source, width))
+    Ok(printer::print(root, source, config))
 }
 
 /// Returns a human-readable description of the first ERROR/MISSING node, if any.

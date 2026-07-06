@@ -36,7 +36,7 @@ fn stdin_filepath_formats_to_stdout() {
         "package p\nclass C{id:Long key;}\n",
     );
     assert_eq!(code, 0);
-    assert_eq!(out, "package p\n\nclass C\n{\n    id: Long key;\n}\n");
+    assert_eq!(out, "package p\n\nclass C\n{\n\tid: Long key;\n}\n");
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn check_reports_and_exits_nonzero_on_difference() {
 fn check_is_silent_and_zero_on_formatted_input() {
     let dir = tempdir();
     let path = dir.join("clean.klass");
-    let formatted = "package p\n\nclass C\n{\n    id: Long key;\n}\n";
+    let formatted = "package p\n\nclass C\n{\n\tid: Long key;\n}\n";
     std::fs::write(&path, formatted).unwrap();
 
     let (out, code) = run(&["--check", path.to_str().unwrap()], "");
@@ -71,13 +71,39 @@ fn write_formats_in_place() {
     let (_out, code) = run(&["--write", path.to_str().unwrap()], "");
     assert_eq!(code, 0);
     let after = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(after, "package p\n\nclass C\n{\n    id: Long key;\n}\n");
+    assert_eq!(after, "package p\n\nclass C\n{\n\tid: Long key;\n}\n");
 }
 
 #[test]
 fn syntax_error_is_reported_and_nonzero() {
     let (_out, code) = run(&["--stdin-filepath", "bad.klass"], "package p\nclass {{{");
     assert_ne!(code, 0, "malformed input should fail");
+}
+
+#[test]
+fn default_indentation_is_tabs() {
+    let (out, code) = run(
+        &["--stdin-filepath", "x.klass"],
+        "package p\nclass C{id:Long key;}\n",
+    );
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("\n\tid: Long key;"),
+        "default should indent with a tab: {out:?}"
+    );
+}
+
+#[test]
+fn use_tabs_false_indents_with_spaces() {
+    let (out, code) = run(
+        &["--stdin-filepath", "x.klass", "--use-tabs", "false"],
+        "package p\nclass C{id:Long key;}\n",
+    );
+    assert_eq!(code, 0);
+    assert!(
+        out.contains("\n    id: Long key;"),
+        "--use-tabs false should use spaces: {out:?}"
+    );
 }
 
 /// A unique temp directory for a test (avoids pulling in the `tempfile` crate).

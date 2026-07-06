@@ -19,31 +19,69 @@ mod comments;
 
 use comments::{Comment, CommentMap};
 
-const INDENT: isize = 4;
+use crate::Config;
 
 /// Renders the whole compilation unit to a formatted string.
-pub fn print(root: Node, source: &str, width: usize) -> String {
+pub fn print(root: Node, source: &str, config: Config) -> String {
     let comments = CommentMap::new(root, source);
-    let printer = Printer { source, comments };
+    let printer = Printer {
+        source,
+        comments,
+        indent: config.tab_width as isize,
+    };
     let doc = printer.compilation_unit(root);
-    let mut out = String::new();
-    doc.render_fmt(width, &mut out).expect("render to String");
 
-    // Strip trailing whitespace from every line: nested hardlines that land on
-    // an otherwise-blank line would otherwise carry the indentation. Then
-    // guarantee exactly one trailing newline.
+    // Render with spaces first: `pretty` measures columns, so `nest` operates
+    // in `tab_width`-column units. Leading space-indentation is converted to
+    // tabs afterward when `use_tabs` is set.
+    let mut out = String::new();
+    doc.render_fmt(config.print_width, &mut out)
+        .expect("render to String");
+
     let mut result = String::with_capacity(out.len());
     for line in out.split('\n') {
-        result.push_str(line.trim_end());
+        // Strip trailing whitespace: nested hardlines that land on an otherwise
+        // blank line would otherwise carry the indentation.
+        let line = line.trim_end();
+        if config.use_tabs {
+            result.push_str(&leading_spaces_to_tabs(line, config.tab_width));
+        } else {
+            result.push_str(line);
+        }
         result.push('\n');
     }
+    // Guarantee exactly one trailing newline.
     let trimmed = result.trim_end_matches('\n');
     format!("{trimmed}\n")
+}
+
+/// Converts a line's leading indentation from spaces to tabs: every full group
+/// of `tab_width` leading spaces becomes one tab. Any remainder (which the
+/// printer does not produce for structural indentation, but could appear inside
+/// aligned content) is left as spaces. Non-leading whitespace is untouched.
+fn leading_spaces_to_tabs(line: &str, tab_width: usize) -> String {
+    if tab_width == 0 {
+        return line.to_string();
+    }
+    let indent_len = line.len() - line.trim_start_matches(' ').len();
+    let tabs = indent_len / tab_width;
+    let rem = indent_len % tab_width;
+    let mut out = String::with_capacity(tabs + rem + (line.len() - indent_len));
+    for _ in 0..tabs {
+        out.push('\t');
+    }
+    for _ in 0..rem {
+        out.push(' ');
+    }
+    out.push_str(&line[indent_len..]);
+    out
 }
 
 struct Printer<'a> {
     source: &'a str,
     comments: CommentMap,
+    /// Columns per indentation level (the `nest` unit).
+    indent: isize,
 }
 
 type Doc<'a> = RcDoc<'a, ()>;
@@ -147,7 +185,7 @@ impl<'a> Printer<'a> {
             }
         }
 
-        header_with_modifier_lines(spaced(head), stacked_lines)
+        self.header_with_modifier_lines(spaced(head), stacked_lines)
     }
 
     fn extends_declaration(&self, node: Node<'a>) -> Doc<'a> {
@@ -224,13 +262,13 @@ impl<'a> Printer<'a> {
             head = head
                 .append(RcDoc::hardline())
                 .append(self.order_by_declaration(ob))
-                .nest(INDENT);
+                .nest(self.indent);
         }
 
         // The criteria block: `{` on its own line, expression indented, `}`.
         let body = match criteria {
             Some(expr) => RcDoc::text("{")
-                .append(RcDoc::hardline().append(self.criteria_expression(expr)).nest(INDENT))
+                .append(RcDoc::hardline().append(self.criteria_expression(expr)).nest(self.indent))
                 .append(RcDoc::hardline())
                 .append(RcDoc::text("}")),
             None => RcDoc::text("{").append(RcDoc::hardline()).append(RcDoc::text("}")),
@@ -316,7 +354,7 @@ impl<'a> Printer<'a> {
                 other => stacked_lines.push(self.verbatim_fallback(child, other)),
             }
         }
-        header_with_modifier_lines(spaced(head), stacked_lines)
+        self.header_with_modifier_lines(spaced(head), stacked_lines)
     }
 
     fn interface_block(&self, node: Node<'a>) -> Doc<'a> {
@@ -409,7 +447,7 @@ impl<'a> Printer<'a> {
         }
 
         RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(INDENT))
+            .append(RcDoc::hardline().append(body).nest(self.indent))
             .append(RcDoc::hardline())
             .append(RcDoc::text("}"))
     }
@@ -425,7 +463,7 @@ impl<'a> Printer<'a> {
                 // whole end declaration is too wide. `group` picks per instance.
                 let clause = RcDoc::line()
                     .append(self.order_by_declaration(ob))
-                    .nest(INDENT);
+                    .nest(self.indent);
                 head.append(clause).append(RcDoc::text(";")).group()
             }
         }
@@ -596,7 +634,7 @@ impl<'a> Printer<'a> {
             body = body.append(self.url_declaration(*url));
         }
         RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(INDENT))
+            .append(RcDoc::hardline().append(body).nest(self.indent))
             .append(RcDoc::hardline())
             .append(RcDoc::text("}"))
     }
@@ -613,7 +651,7 @@ impl<'a> Printer<'a> {
         for svc in services {
             // Each verb block is indented one level under the url.
             doc = doc
-                .append(RcDoc::hardline().append(self.service_declaration(svc)).nest(INDENT));
+                .append(RcDoc::hardline().append(self.service_declaration(svc)).nest(self.indent));
         }
         doc
     }
@@ -688,7 +726,7 @@ impl<'a> Printer<'a> {
             body = body.append(m.into_doc(align_width));
         }
         RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(INDENT))
+            .append(RcDoc::hardline().append(body).nest(self.indent))
             .append(RcDoc::hardline())
             .append(RcDoc::text("}"))
     }
@@ -822,7 +860,7 @@ impl<'a> Printer<'a> {
                 .append(RcDoc::text(" "))
                 .append(operand);
         }
-        first.append(tail.nest(2 * INDENT)).group()
+        first.append(tail.nest(2 * self.indent)).group()
     }
 
     fn flatten_criteria(&self, node: Node<'a>, op: &'static str, out: &mut Vec<Doc<'a>>) {
@@ -982,7 +1020,7 @@ impl<'a> Printer<'a> {
         }
 
         RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(INDENT))
+            .append(RcDoc::hardline().append(body).nest(self.indent))
             .append(RcDoc::hardline())
             .append(RcDoc::text("}"))
     }
@@ -993,6 +1031,21 @@ impl<'a> Printer<'a> {
     fn blank_line_between(&self, prev: Node<'a>, next: Node<'a>) -> bool {
         let gap = &self.source[prev.end_byte()..next.start_byte()];
         gap.bytes().filter(|b| *b == b'\n').count() > 1
+    }
+
+    /// A declaration header (`class Foo`, `interface Bar`) followed by zero or
+    /// more modifier lines, each on its own line indented one level. The
+    /// modifier lines are nested together so the indent applies once, not
+    /// cumulatively.
+    fn header_with_modifier_lines(&self, head: Doc<'a>, modifier_lines: Vec<Doc<'a>>) -> Doc<'a> {
+        if modifier_lines.is_empty() {
+            return head;
+        }
+        let mut tail = RcDoc::nil();
+        for m in modifier_lines {
+            tail = tail.append(RcDoc::hardline()).append(m);
+        }
+        head.append(tail.nest(self.indent))
     }
 
     // ---- comment emission ----
@@ -1089,20 +1142,6 @@ impl<'a> MemberDoc<'a> {
             None => self.rest,
         }
     }
-}
-
-/// A declaration header (`class Foo`, `interface Bar`) followed by zero or more
-/// modifier lines, each on its own line indented one level. The modifier lines
-/// are nested together so the indent applies once, not cumulatively.
-fn header_with_modifier_lines<'a>(head: Doc<'a>, modifier_lines: Vec<Doc<'a>>) -> Doc<'a> {
-    if modifier_lines.is_empty() {
-        return head;
-    }
-    let mut tail = RcDoc::nil();
-    for m in modifier_lines {
-        tail = tail.append(RcDoc::hardline()).append(m);
-    }
-    head.append(tail.nest(INDENT))
 }
 
 /// Joins docs with single spaces.
