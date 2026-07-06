@@ -11,6 +11,11 @@ path = "src/lib.rs"
 tree-sitter = "0.22"
 pretty = "0.12"
 similar = "2"
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "klassfmt"
+path = "src/bin/klassfmt.rs"
 
 [build-dependencies]
 cc = "1.0"
