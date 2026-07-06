@@ -6,7 +6,10 @@
 
 use tree_sitter::{Language, Parser};
 
+mod markdown;
 mod printer;
+
+pub use markdown::format_markdown;
 
 extern "C" {
     fn tree_sitter_klass() -> Language;
@@ -103,6 +106,36 @@ pub fn format_with_config(source: &str, config: Config) -> Result<String, Format
     }
 
     Ok(printer::print(root, source, config))
+}
+
+/// Sentinel package name used to make a package-less fragment parseable.
+const FRAGMENT_PACKAGE: &str = "package __klassfmt_fragment__";
+
+/// Formats a Klass fragment: source that may omit the required leading
+/// `package` declaration, as embedded documentation examples typically do.
+///
+/// First tries to format `source` as a complete compilation unit. If that fails
+/// (e.g. no `package`), retries by wrapping the source in a synthetic package,
+/// formatting, and stripping the synthetic lines back off — so a bare
+/// `class Foo { ... }` example still gets canonicalized. Returns an error only
+/// if neither form parses.
+pub fn format_fragment_with_config(source: &str, config: Config) -> Result<String, FormatError> {
+    if let Ok(formatted) = format_with_config(source, config) {
+        return Ok(formatted);
+    }
+
+    // Retry as a fragment under a synthetic package.
+    let wrapped = format!("{FRAGMENT_PACKAGE}\n\n{source}");
+    let formatted = format_with_config(&wrapped, config)?;
+
+    // Strip the synthetic package line and the blank line that follows it.
+    let body = formatted
+        .strip_prefix(FRAGMENT_PACKAGE)
+        .and_then(|rest| rest.strip_prefix('\n'))
+        .map(|rest| rest.strip_prefix('\n').unwrap_or(rest))
+        .unwrap_or(&formatted);
+
+    Ok(body.to_string())
 }
 
 /// Returns a human-readable description of the first ERROR/MISSING node, if any.

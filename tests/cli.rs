@@ -106,6 +106,42 @@ fn use_tabs_false_indents_with_spaces() {
     );
 }
 
+#[test]
+fn markdown_stdin_formats_only_klass_fences() {
+    let (out, code) = run(
+        &["--stdin-filepath", "doc.md"],
+        "# Doc\n\n```klass\nclass C{id:Long key;}\n```\n\n```json\n{}\n```\n",
+    );
+    assert_eq!(code, 0);
+    assert!(out.contains("\n\tid: Long key;\n"), "klass block not formatted: {out:?}");
+    assert!(out.contains("```json\n{}\n```"), "json block changed: {out:?}");
+    assert!(out.starts_with("# Doc\n"));
+}
+
+#[test]
+fn markdown_file_write_and_check() {
+    let dir = tempdir();
+    let path = dir.join("doc.md");
+    std::fs::write(
+        &path,
+        "# Doc\n\n```klass\nclass C{id:Long key;}\n```\n",
+    )
+    .unwrap();
+
+    // Unformatted: --check exits 1 and names the file.
+    let (out, code) = run(&["--check", path.to_str().unwrap()], "");
+    assert_eq!(code, 1);
+    assert!(out.contains("doc.md"));
+
+    // --write formats in place, then --check is clean.
+    let (_o, code) = run(&["--write", path.to_str().unwrap()], "");
+    assert_eq!(code, 0);
+    let after = std::fs::read_to_string(&path).unwrap();
+    assert!(after.contains("\n\tid: Long key;\n"), "not formatted in place: {after:?}");
+    let (_o, code) = run(&["--check", path.to_str().unwrap()], "");
+    assert_eq!(code, 0, "should be clean after write");
+}
+
 /// A unique temp directory for a test (avoids pulling in the `tempfile` crate).
 fn tempdir() -> std::path::PathBuf {
     let base = std::env::temp_dir();

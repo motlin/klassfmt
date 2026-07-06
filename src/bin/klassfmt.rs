@@ -53,6 +53,11 @@ struct Cli {
     #[arg(long, default_value_t = klassfmt::DEFAULT_TAB_WIDTH)]
     tab_width: usize,
 
+    /// Treat input as Markdown and format only its ```klass code blocks.
+    /// Auto-detected from a `.md`/`.markdown` extension; this forces it on.
+    #[arg(long)]
+    markdown: bool,
+
     /// Files to format.
     #[arg(value_name = "PATH")]
     paths: Vec<PathBuf>,
@@ -64,6 +69,28 @@ impl Cli {
             print_width: self.print_width,
             use_tabs: self.use_tabs,
             tab_width: self.tab_width,
+        }
+    }
+
+    /// Whether the given path should be processed as Markdown: either the
+    /// `--markdown` flag is set, or the path has a markdown extension.
+    fn is_markdown(&self, path: Option<&Path>) -> bool {
+        if self.markdown {
+            return true;
+        }
+        path.and_then(|p| p.extension())
+            .map(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+            .unwrap_or(false)
+    }
+
+    /// Formats `source` as either Markdown (klass fences only) or a whole Klass
+    /// file, per [`Cli::is_markdown`]. Markdown formatting never fails (bad
+    /// blocks are left as-is); Klass formatting may return a syntax error.
+    fn format(&self, source: &str, path: Option<&Path>) -> Result<String, klassfmt::FormatError> {
+        if self.is_markdown(path) {
+            Ok(klassfmt::format_markdown(source, self.config()))
+        } else {
+            klassfmt::format_with_config(source, self.config())
         }
     }
 }
@@ -83,7 +110,7 @@ fn run_stdin(cli: &Cli) -> ExitCode {
         eprintln!("klassfmt: failed to read stdin");
         return ExitCode::FAILURE;
     }
-    match klassfmt::format_with_config(&input, cli.config()) {
+    match cli.format(&input, cli.stdin_filepath.as_deref()) {
         Ok(formatted) => {
             print!("{formatted}");
             ExitCode::SUCCESS
@@ -114,7 +141,7 @@ fn run_paths(cli: &Cli) -> ExitCode {
             }
         };
 
-        let formatted = match klassfmt::format_with_config(&source, cli.config()) {
+        let formatted = match cli.format(&source, Some(path)) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("klassfmt: {}: {e}", path.display());
