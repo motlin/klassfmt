@@ -35,6 +35,8 @@ pub fn print(root: Node, source: &str, width: usize) -> String {
 
 struct Printer<'a> {
     source: &'a str,
+    // Wired through now; consumed once comment attachment lands in A4.
+    #[allow(dead_code)]
     comments: CommentMap,
 }
 
