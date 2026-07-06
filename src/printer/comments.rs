@@ -36,6 +36,8 @@ pub struct Comment {
 pub struct CommentMap {
     leading: HashMap<usize, Vec<Comment>>,
     trailing: HashMap<usize, Vec<Comment>>,
+    /// Standalone comments after the last declaration (own line at EOF).
+    trailing_file: Vec<Comment>,
 }
 
 impl CommentMap {
@@ -91,14 +93,10 @@ impl CommentMap {
                     blank_before,
                 });
             } else {
-                // No following node: dangling at end of file — attach as trailing
-                // of the last named node.
-                if let Some(anchor) = anchors.iter().max_by_key(|n| n.end_byte()) {
-                    map.trailing.entry(anchor.id()).or_default().push(Comment {
-                        text,
-                        blank_before,
-                    });
-                }
+                // No following node. A comment that stood on its own line at EOF
+                // stays a standalone trailing-file comment; a same-line one
+                // trails the last node.
+                map.trailing_file.push(Comment { text, blank_before });
             }
         }
 
@@ -111,6 +109,10 @@ impl CommentMap {
 
     pub fn trailing(&self, node: Node) -> &[Comment] {
         self.trailing.get(&node.id()).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn trailing_file(&self) -> &[Comment] {
+        &self.trailing_file
     }
 }
 

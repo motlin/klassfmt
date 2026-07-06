@@ -85,7 +85,16 @@ impl<'a> Printer<'a> {
         }
 
         // One blank line between top-level items.
-        intersperse_blank(parts)
+        let mut doc = intersperse_blank(parts);
+
+        // Standalone comments after the last declaration, each on its own line.
+        for c in self.comments.trailing_file() {
+            doc = doc
+                .append(RcDoc::hardline())
+                .append(RcDoc::hardline())
+                .append(self.comment_doc(c));
+        }
+        doc
     }
 
     fn package_declaration(&self, node: Node<'a>) -> Doc<'a> {
