@@ -1,23 +1,183 @@
 //! Comment/trivia attachment.
 //!
 //! tree-sitter keeps `line_comment` and `block_comment` nodes in the tree (they
-//! are declared as `extras`), but they hang off arbitrary points rather than
-//! being attached to the logical node they document. This module will, in A4,
-//! attach each comment to a nearby node as leading / trailing / dangling
-//! trivia so the printer can re-emit it in the right place.
+//! are declared as `extras`), floating between the structural nodes rather than
+//! attached to the node they document. This module buckets every comment onto a
+//! nearby *named* node as either:
 //!
-//! For A2/A3 it is a minimal placeholder: it simply records that no comments
-//! have been attached yet. Fixtures used before A4 are comment-free.
+//!   * **leading**  — the comment sits on its own line(s) above the node, or
+//!                    immediately before it; emitted before the node.
+//!   * **trailing** — the comment is on the same source line as the end of the
+//!                    node; emitted after the node on the same line.
+//!
+//! Comments inside an otherwise-empty block attach as leading trivia of the
+//! block's closing context via the enclosing node (handled by the printer).
+//!
+//! Attachment rule: each comment is assigned to the nearest named node it
+//! borders. If a non-comment token sits on the same line to the comment's left,
+//! the comment trails the named node ending on that line; otherwise it leads the
+//! next named node that begins after it.
+
+use std::collections::HashMap;
 
 use tree_sitter::Node;
 
+/// A single captured comment, with whether a blank line separated it from the
+/// preceding content (so the printer can reproduce paragraph breaks).
+#[derive(Clone)]
+pub struct Comment {
+    pub text: String,
+    /// True if there was a blank line between this comment and whatever came
+    /// before it (previous comment or code).
+    pub blank_before: bool,
+}
+
 #[derive(Default)]
 pub struct CommentMap {
-    // Populated in A4.
+    leading: HashMap<usize, Vec<Comment>>,
+    trailing: HashMap<usize, Vec<Comment>>,
 }
 
 impl CommentMap {
-    pub fn new(_root: Node, _source: &str) -> Self {
-        CommentMap::default()
+    pub fn new(root: Node, source: &str) -> Self {
+        let mut map = CommentMap::default();
+
+        // Gather all comment nodes in source order.
+        let comments = collect_comments(root);
+        // Gather all *named*, non-comment nodes in source order; these are the
+        // candidates a comment can attach to.
+        let mut anchors: Vec<Node> = Vec::new();
+        collect_anchors(root, &mut anchors);
+        anchors.sort_by_key(|n| n.start_byte());
+
+        for comment in comments {
+            let c_start = comment.start_byte();
+            let c_end = comment.end_byte();
+
+            // Is there code on the same line to the left of the comment? If so,
+            // the comment trails the nearest named node that ends on that line.
+            let line_start = source[..c_start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let before_on_line = &source[line_start..c_start];
+            let has_code_before = !before_on_line.trim().is_empty();
+
+            let text = source[c_start..c_end].to_string();
+
+            if has_code_before {
+                // Trailing: attach to the deepest named node ending at or before
+                // the comment on this same line.
+                if let Some(anchor) = anchors
+                    .iter()
+                    .filter(|n| n.end_byte() <= c_start && n.end_byte() >= line_start)
+                    .max_by_key(|n| n.end_byte())
+                {
+                    map.trailing.entry(anchor.id()).or_default().push(Comment {
+                        text,
+                        blank_before: false,
+                    });
+                    continue;
+                }
+            }
+
+            // Leading: attach to the next named node starting at or after the
+            // comment's end. Prefer the smallest such node (deepest/closest).
+            let blank_before = blank_between(source, prev_content_end(source, c_start), c_start);
+            if let Some(anchor) = anchors
+                .iter()
+                .filter(|n| n.start_byte() >= c_end)
+                .min_by_key(|n| (n.start_byte(), n.end_byte()))
+            {
+                map.leading.entry(anchor.id()).or_default().push(Comment {
+                    text,
+                    blank_before,
+                });
+            } else {
+                // No following node: dangling at end of file — attach as trailing
+                // of the last named node.
+                if let Some(anchor) = anchors.iter().max_by_key(|n| n.end_byte()) {
+                    map.trailing.entry(anchor.id()).or_default().push(Comment {
+                        text,
+                        blank_before,
+                    });
+                }
+            }
+        }
+
+        map
     }
+
+    pub fn leading(&self, node: Node) -> &[Comment] {
+        self.leading.get(&node.id()).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn trailing(&self, node: Node) -> &[Comment] {
+        self.trailing.get(&node.id()).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+}
+
+fn collect_comments<'a>(root: Node<'a>) -> Vec<Node<'a>> {
+    let mut out = Vec::new();
+    let mut cursor = root.walk();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if is_comment(node) {
+            out.push(node);
+        }
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    out.sort_by_key(|n| n.start_byte());
+    out
+}
+
+/// The node kinds the printer emits as standalone units, and thus the only
+/// nodes a comment attaches to. Restricting anchors to these keeps a comment
+/// above `class Foo` attached to the whole declaration rather than to the
+/// `class` keyword or the identifier inside it.
+const ANCHOR_KINDS: &[&str] = &[
+    "package_declaration",
+    "top_level_declaration",
+    "class_member",
+    "interface_member",
+    "enumeration_literal",
+    "association_end",
+    "relationship",
+    "projection_member",
+    "url_declaration",
+    "service_declaration",
+    "service_multiplicity_declaration",
+    "service_criteria_declaration",
+    "service_projection_dispatch",
+    "service_order_by_declaration",
+];
+
+/// Collects the anchor nodes (of [`ANCHOR_KINDS`]) that a comment may attach to.
+fn collect_anchors<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if is_comment(child) {
+            continue;
+        }
+        if ANCHOR_KINDS.contains(&child.kind()) {
+            out.push(child);
+        }
+        collect_anchors(child, out);
+    }
+}
+
+/// The byte offset just past the previous non-whitespace content before `pos`.
+fn prev_content_end(source: &str, pos: usize) -> usize {
+    source[..pos].trim_end().len()
+}
+
+/// Whether the gap `source[from..to]` contains a blank line (two+ newlines).
+fn blank_between(source: &str, from: usize, to: usize) -> bool {
+    if from >= to {
+        return false;
+    }
+    source[from..to].bytes().filter(|b| *b == b'\n').count() > 1
+}
+
+fn is_comment(node: Node) -> bool {
+    matches!(node.kind(), "line_comment" | "block_comment")
 }

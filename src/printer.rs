@@ -17,7 +17,7 @@ use tree_sitter::Node;
 
 mod comments;
 
-use comments::CommentMap;
+use comments::{Comment, CommentMap};
 
 const INDENT: isize = 4;
 
@@ -43,8 +43,6 @@ pub fn print(root: Node, source: &str, width: usize) -> String {
 
 struct Printer<'a> {
     source: &'a str,
-    // Wired through now; consumed once comment attachment lands in A4.
-    #[allow(dead_code)]
     comments: CommentMap,
 }
 
@@ -83,7 +81,7 @@ impl<'a> Printer<'a> {
                 "top_level_declaration" => self.top_level_declaration(child),
                 other => self.verbatim_fallback(child, other),
             };
-            parts.push(doc);
+            parts.push(self.with_comments(child, doc));
         }
 
         // One blank line between top-level items.
@@ -963,7 +961,7 @@ impl<'a> Printer<'a> {
             .unwrap_or(0);
 
         let mut body = RcDoc::nil();
-        for (i, m) in rendered.into_iter().enumerate() {
+        for (i, (m, node)) in rendered.into_iter().zip(members.iter()).enumerate() {
             if i > 0 {
                 body = body.append(RcDoc::hardline());
                 // Preserve a single author-inserted blank line between members.
@@ -971,7 +969,7 @@ impl<'a> Printer<'a> {
                     body = body.append(RcDoc::hardline());
                 }
             }
-            body = body.append(m.into_doc(align_width));
+            body = body.append(self.with_comments(*node, m.into_doc(align_width)));
         }
 
         RcDoc::text("{")
@@ -986,6 +984,50 @@ impl<'a> Printer<'a> {
     fn blank_line_between(&self, prev: Node<'a>, next: Node<'a>) -> bool {
         let gap = &self.source[prev.end_byte()..next.start_byte()];
         gap.bytes().filter(|b| *b == b'\n').count() > 1
+    }
+
+    // ---- comment emission ----
+
+    /// Wraps a rendered anchor node's doc with its attached leading and trailing
+    /// comments. Leading comments print on their own lines above `doc`
+    /// (preserving author blank lines between them); a trailing comment prints
+    /// after `doc` on the same line.
+    fn with_comments(&self, node: Node<'a>, doc: Doc<'a>) -> Doc<'a> {
+        let leading = self.comments.leading(node);
+        let trailing = self.comments.trailing(node);
+
+        let mut result = RcDoc::nil();
+        for (i, c) in leading.iter().enumerate() {
+            if i > 0 && c.blank_before {
+                result = result.append(RcDoc::hardline());
+            }
+            result = result.append(self.comment_doc(c)).append(RcDoc::hardline());
+        }
+        result = result.append(doc);
+        for c in trailing {
+            result = result.append(RcDoc::text(" ")).append(self.comment_doc(c));
+        }
+        result
+    }
+
+    /// Renders a single comment. Block comments keep their internal lines as-is
+    /// (re-indentation of multi-line block comments is left to the author).
+    fn comment_doc(&self, comment: &Comment) -> Doc<'a> {
+        let text = comment.text.clone();
+        if text.contains('\n') {
+            // Preserve internal newlines with hardlines so nesting doesn't
+            // collapse them; trailing whitespace is stripped globally later.
+            let mut doc = RcDoc::nil();
+            for (i, line) in text.split('\n').enumerate() {
+                if i > 0 {
+                    doc = doc.append(RcDoc::hardline());
+                }
+                doc = doc.append(RcDoc::text(line.to_string()));
+            }
+            doc
+        } else {
+            RcDoc::text(text)
+        }
     }
 
     // ---- fallback ----
