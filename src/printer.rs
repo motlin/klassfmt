@@ -1206,6 +1206,39 @@ fn normalize_multiline_comment(text: &str) -> String {
     }
 
     let lines: Vec<&str> = text.split('\n').collect();
+
+    // Javadoc-style block: every non-blank continuation line, once trimmed,
+    // starts with `*`. Canonicalize each to a single leading space so the `*`
+    // aligns under the `/*` (the corpus convention). This is re-nested at the
+    // comment's position by the printer, so a deeper source indentation here
+    // would otherwise be double-counted or, worse, stripped along with the
+    // alignment space.
+    let has_continuation = lines
+        .iter()
+        .skip(1)
+        .any(|line| !line.trim().is_empty());
+    let is_star_block = has_continuation
+        && lines
+            .iter()
+            .skip(1)
+            .filter(|line| !line.trim().is_empty())
+            .all(|line| line.trim_start().starts_with('*'));
+    if is_star_block {
+        let mut normalized = String::new();
+        for (index, line) in lines.iter().enumerate() {
+            if index > 0 {
+                normalized.push('\n');
+            }
+            if index == 0 || line.trim().is_empty() {
+                normalized.push_str(line);
+            } else {
+                normalized.push(' ');
+                normalized.push_str(line.trim_start());
+            }
+        }
+        return normalized;
+    }
+
     let Some(strip_count) = lines
         .iter()
         .skip(1)
@@ -1232,4 +1265,29 @@ fn normalize_multiline_comment(text: &str) -> String {
 
 fn is_comment(node: Node) -> bool {
     matches!(node.kind(), "line_comment" | "block_comment")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_multiline_comment;
+
+    #[test]
+    fn preserves_javadoc_star_alignment() {
+        let input = "/*\n * line one\n * line two\n */";
+        assert_eq!(normalize_multiline_comment(input), input);
+    }
+
+    #[test]
+    fn canonicalizes_over_indented_star_block() {
+        let input = "/*\n     * line one\n     */";
+        let expected = "/*\n * line one\n */";
+        assert_eq!(normalize_multiline_comment(input), expected);
+    }
+
+    #[test]
+    fn strips_common_indent_for_non_star_block() {
+        let input = "/*\n    line one\n    line two\n    */";
+        let expected = "/*\nline one\nline two\n*/";
+        assert_eq!(normalize_multiline_comment(input), expected);
+    }
 }
