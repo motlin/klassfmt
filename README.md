@@ -44,12 +44,12 @@ apply to both `.klass` and Markdown inputs, and a single invocation may mix them
 
 ### Options
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--print-width <n>` | `120` | Column width the printer wraps at. |
-| `--use-tabs [true\|false]` | `true` | Indent with a tab per level (or `--use-tabs false` for spaces). |
-| `--tab-width <n>` | `4` | Columns per indentation level (tab display width for wrap math). |
-| `--markdown` | off | Force Markdown mode regardless of file extension. |
+| Flag                       | Default | Meaning                                                          |
+| -------------------------- | ------- | ---------------------------------------------------------------- |
+| `--print-width <n>`        | `120`   | Column width the printer wraps at.                               |
+| `--use-tabs [true\|false]` | `true`  | Indent with a tab per level (or `--use-tabs false` for spaces).  |
+| `--tab-width <n>`          | `4`     | Columns per indentation level (tab display width for wrap math). |
+| `--markdown`               | off     | Force Markdown mode regardless of file extension.                |
 
 Defaults match the Klass repo's `.prettierrc.json5`.
 
@@ -68,24 +68,24 @@ formats `.klass` files; the second formats `klass` fences in Markdown. Use the
 `--write` variant to auto-format, or the `--check` variant (shown commented) to
 fail the commit without modifying files.
 
-```yaml
+````yaml
 - repo: local
   hooks:
-    - id: klassfmt
-      name: klassfmt (format .klass files)
-      entry: klassfmt --write
-      language: system
-      files: '\.klass$'
-      # For a check-only gate instead of auto-formatting, use:
-      # entry: klassfmt --check
-      # pass_filenames: true
+      - id: klassfmt
+        name: klassfmt (format .klass files)
+        entry: klassfmt --write
+        language: system
+        files: '\.klass$'
+        # For a check-only gate instead of auto-formatting, use:
+        # entry: klassfmt --check
+        # pass_filenames: true
 
-    - id: klassfmt-markdown
-      name: klassfmt (format ```klass fences in Markdown)
-      entry: klassfmt --markdown --write
-      language: system
-      files: '\.(md|markdown)$'
-```
+      - id: klassfmt-markdown
+        name: klassfmt (format ```klass fences in Markdown)
+        entry: klassfmt --markdown --write
+        language: system
+        files: '\.(md|markdown)$'
+````
 
 Install the hooks with `pre-commit install`. To run them across the whole
 repository once (e.g. right after adding the config):

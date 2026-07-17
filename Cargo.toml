@@ -1,7 +1,7 @@
 [package]
 name = "klassfmt"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "A standalone formatter for the Klass DSL"
 
 [lib]
@@ -19,3 +19,50 @@ path = "src/bin/klassfmt.rs"
 
 [build-dependencies]
 cc = "1.0"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+# Lints are configured here rather than in a separate clippy.toml so the policy
+# travels with the manifest. Override or extend per project as needed.
+[lints.rust]
+# `deny` rather than the template's `forbid` so the single tree-sitter FFI call
+# in `src/lib.rs` can opt in with a scoped `#[allow(unsafe_code)]`; all other
+# unsafe usage is still rejected.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# The template `all` + `pedantic` policy is adopted wholesale above. The lints
+# below fire on klassfmt's pre-existing, golden-tested formatter source (a
+# hand-tuned Wadler pretty-printer); they are scoped to `allow` here rather than
+# churning that source as part of this config sync. Re-enabling them is tracked
+# as follow-up cleanup. Individual `allow`s outrank the group `warn`s (priority
+# 0 > -1), so the rest of `all`/`pedantic` stays enforced.
+cast_possible_wrap = "allow"
+collapsible_if = "allow"
+doc_markdown = "allow"
+doc_overindented_list_items = "allow"
+elidable_lifetime_names = "allow"
+explicit_counter_loop = "allow"
+ignore_without_reason = "allow"
+manual_let_else = "allow"
+map_unwrap_or = "allow"
+match_same_arms = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+only_used_in_recursion = "allow"
+redundant_closure_for_method_calls = "allow"
+semicolon_if_nothing_returned = "allow"
+single_match_else = "allow"
+struct_excessive_bools = "allow"
+uninlined_format_args = "allow"
+unnecessary_sort_by = "allow"
+unused_self = "allow"
