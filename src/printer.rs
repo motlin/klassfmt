@@ -21,6 +21,10 @@ use comments::{Comment, CommentMap};
 
 use crate::Config;
 
+/// Sentinel prefixing verbatim block-comment interior lines, so the render
+/// post-pass emits them untouched. A NUL cannot appear in Klass source.
+const VERBATIM_MARK: char = '\u{0}';
+
 /// Renders the whole compilation unit to a formatted string.
 pub(crate) fn print(root: Node, source: &str, config: Config) -> String {
 	let comments = CommentMap::new(root, source);
@@ -40,6 +44,13 @@ pub(crate) fn print(root: Node, source: &str, config: Config) -> String {
 
 	let mut result = String::with_capacity(out.len());
 	for line in out.split('\n') {
+		// Verbatim block-comment interior lines are marked; emit them exactly as
+		// authored (mark stripped), bypassing trim and space->tab conversion.
+		if let Some(verbatim) = line.strip_prefix(VERBATIM_MARK) {
+			result.push_str(verbatim);
+			result.push('\n');
+			continue;
+		}
 		// Strip trailing whitespace: nested hardlines that land on an otherwise
 		// blank line would otherwise carry the indentation.
 		let line = line.trim_end();
@@ -1096,10 +1107,27 @@ impl<'a> Printer<'a> {
 	/// Renders a single comment. Block comments keep their internal lines as-is
 	/// (re-indentation of multi-line block comments is left to the author).
 	fn comment_doc(&self, comment: &Comment) -> Doc<'a> {
+		// Non-javadoc multi-line block comments are emitted verbatim. Their
+		// interior (commented-out code, ASCII art) is the author's exact text, so
+		// the raw newlines go into a single text node — keeping them out of the
+		// printer's nesting. Each continuation line is prefixed with VERBATIM_MARK
+		// so the render post-pass leaves it untouched (no space->tab conversion, no
+		// trailing-whitespace trim); the mark is stripped there.
+		if comment.text.contains('\n') && !is_javadoc_star_block(&comment.text) {
+			let mut marked = String::new();
+			for (i, line) in comment.text.split('\n').enumerate() {
+				if i > 0 {
+					marked.push('\n');
+					marked.push(VERBATIM_MARK);
+				}
+				marked.push_str(line);
+			}
+			return RcDoc::text(marked);
+		}
 		let text = normalize_multiline_comment(&comment.text);
 		if text.contains('\n') {
-			// Preserve internal newlines with hardlines so nesting doesn't
-			// collapse them; trailing whitespace is stripped globally later.
+			// Javadoc `*` block: hardlines so the aligned `*` re-nests under `/*`;
+			// trailing whitespace is stripped globally later.
 			let mut doc = RcDoc::nil();
 			for (i, line) in text.split('\n').enumerate() {
 				if i > 0 {
@@ -1200,52 +1228,33 @@ fn intersperse_blank<'a>(docs: Vec<Doc<'a>>) -> Doc<'a> {
 	acc
 }
 
-fn normalize_multiline_comment(text: &str) -> String {
+/// True when a multi-line block comment is javadoc-style: every non-blank
+/// continuation line, once trimmed, starts with `*`.
+fn is_javadoc_star_block(text: &str) -> bool {
 	if !text.contains('\n') {
-		return text.to_string();
+		return false;
 	}
-
 	let lines: Vec<&str> = text.split('\n').collect();
-
-	// Javadoc-style block: every non-blank continuation line, once trimmed,
-	// starts with `*`. Canonicalize each to a single leading space so the `*`
-	// aligns under the `/*` (the corpus convention). This is re-nested at the
-	// comment's position by the printer, so a deeper source indentation here
-	// would otherwise be double-counted or, worse, stripped along with the
-	// alignment space.
 	let has_continuation = lines.iter().skip(1).any(|line| !line.trim().is_empty());
-	let is_star_block = has_continuation
+	has_continuation
 		&& lines
 			.iter()
 			.skip(1)
 			.filter(|line| !line.trim().is_empty())
-			.all(|line| line.trim_start().starts_with('*'));
-	if is_star_block {
-		let mut normalized = String::new();
-		for (index, line) in lines.iter().enumerate() {
-			if index > 0 {
-				normalized.push('\n');
-			}
-			if index == 0 || line.trim().is_empty() {
-				normalized.push_str(line);
-			} else {
-				normalized.push(' ');
-				normalized.push_str(line.trim_start());
-			}
-		}
-		return normalized;
+			.all(|line| line.trim_start().starts_with('*'))
+}
+
+fn normalize_multiline_comment(text: &str) -> String {
+	// Only javadoc-style `*` blocks are canonicalized: each continuation line to a
+	// single leading space so the `*` aligns under the `/*` (the corpus
+	// convention). Every other block comment is returned verbatim — its interior
+	// may be commented-out code or ASCII art the author laid out deliberately, and
+	// re-indenting it would corrupt the intended content.
+	if !is_javadoc_star_block(text) {
+		return text.to_string();
 	}
 
-	let Some(strip_count) = lines
-		.iter()
-		.skip(1)
-		.filter(|line| !line.trim().is_empty())
-		.map(|line| line.chars().take_while(|c| c.is_whitespace()).count())
-		.min()
-	else {
-		return text.to_string();
-	};
-
+	let lines: Vec<&str> = text.split('\n').collect();
 	let mut normalized = String::new();
 	for (index, line) in lines.iter().enumerate() {
 		if index > 0 {
@@ -1253,9 +1262,10 @@ fn normalize_multiline_comment(text: &str) -> String {
 		}
 		if index == 0 || line.trim().is_empty() {
 			normalized.push_str(line);
-			continue;
+		} else {
+			normalized.push(' ');
+			normalized.push_str(line.trim_start());
 		}
-		normalized.push_str(&line.chars().skip(strip_count).collect::<String>());
 	}
 	normalized
 }
@@ -1282,9 +1292,10 @@ mod tests {
 	}
 
 	#[test]
-	fn strips_common_indent_for_non_star_block() {
-		let input = "/*\n    line one\n    line two\n    */";
-		let expected = "/*\nline one\nline two\n*/";
-		assert_eq!(normalize_multiline_comment(input), expected);
+	fn preserves_non_star_block_verbatim() {
+		// Non-javadoc block comments (e.g. commented-out code) keep their exact
+		// interior; the formatter must not re-indent them.
+		let input = "/*\n    service X on Y\n    {\n        GET;\n    }\n*/";
+		assert_eq!(normalize_multiline_comment(input), input);
 	}
 }

@@ -90,3 +90,16 @@ fn golden_service_block() {
 		"\trelationship this.relatedClassId == RelatedClass.id\n\t\t&& this.privateUsedInAssociationCriteria == \"test\"\n",
 	);
 }
+
+#[test]
+fn preserves_block_comment_interior_verbatim() {
+	// A /* */ block wrapping commented-out code must keep its interior exactly.
+	// Regression: the space->tab post-pass was re-indenting the interior 4-space
+	// indentation into tabs, corrupting the author's content.
+	let src = "package p\n\n/*\n    service X on Y\n    {\n        GET;\n    }\n*/\nclass A\n{\n    id: Long key id;\n}\n";
+	let out = klassfmt::format(src).expect("format");
+	assert!(
+		out.contains("/*\n    service X on Y\n    {\n        GET;\n    }\n*/"),
+		"block-comment interior must be verbatim (4-space, not tabs); got:\n{out}"
+	);
+}
