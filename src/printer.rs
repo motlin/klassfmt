@@ -205,7 +205,7 @@ impl<'a> Printer<'a> {
 
     fn class_block(&self, node: Node<'a>) -> Doc<'a> {
         let members = self.named_children(node);
-        self.member_block(&members, |p, m| p.class_member(m))
+        self.member_block(node, &members, |p, m| p.class_member(m))
     }
 
     fn class_member(&self, node: Node<'a>) -> MemberDoc<'a> {
@@ -268,10 +268,16 @@ impl<'a> Printer<'a> {
         // The criteria block: `{` on its own line, expression indented, `}`.
         let body = match criteria {
             Some(expr) => RcDoc::text("{")
-                .append(RcDoc::hardline().append(self.criteria_expression(expr)).nest(self.indent))
+                .append(
+                    RcDoc::hardline()
+                        .append(self.criteria_expression_with_comments(expr))
+                        .nest(self.indent),
+                )
                 .append(RcDoc::hardline())
                 .append(RcDoc::text("}")),
-            None => RcDoc::text("{").append(RcDoc::hardline()).append(RcDoc::text("}")),
+            None => RcDoc::text("{")
+                .append(RcDoc::hardline())
+                .append(RcDoc::text("}")),
         };
 
         MemberDoc::unaligned(head.append(RcDoc::hardline()).append(body))
@@ -305,7 +311,9 @@ impl<'a> Printer<'a> {
                         rhs.push(last.append(RcDoc::text("?")));
                     }
                 }
-                "data_type_property_modifier" => rhs.push(RcDoc::text(self.text(*child).to_string())),
+                "data_type_property_modifier" => {
+                    rhs.push(RcDoc::text(self.text(*child).to_string()))
+                }
                 "data_type_property_validation" => rhs.push(self.validation(*child)),
                 other => rhs.push(self.verbatim_fallback(*child, other)),
             }
@@ -359,7 +367,7 @@ impl<'a> Printer<'a> {
 
     fn interface_block(&self, node: Node<'a>) -> Doc<'a> {
         let members = self.named_children(node);
-        self.member_block(&members, |p, m| p.interface_member(m))
+        self.member_block(node, &members, |p, m| p.interface_member(m))
     }
 
     fn interface_member(&self, node: Node<'a>) -> MemberDoc<'a> {
@@ -380,7 +388,7 @@ impl<'a> Printer<'a> {
         let name = self.child_of_kind(node, &["identifier"]).unwrap();
         let block = self.child_of_kind(node, &["enumeration_block"]).unwrap();
         let literals = self.named_children(block);
-        let body = self.member_block(&literals, |p, m| p.enumeration_literal(m));
+        let body = self.member_block(block, &literals, |p, m| p.enumeration_literal(m));
         RcDoc::text("enumeration ")
             .append(RcDoc::text(self.text(name).to_string()))
             .append(RcDoc::hardline())
@@ -420,15 +428,13 @@ impl<'a> Printer<'a> {
             .copied()
             .filter(|c| c.kind() == "association_end")
             .collect();
-        let relationship = children.iter().copied().find(|c| c.kind() == "relationship");
-
-        if ends.is_empty() && relationship.is_none() {
-            return RcDoc::text("{")
-                .append(RcDoc::hardline())
-                .append(RcDoc::text("}"));
-        }
+        let relationship = children
+            .iter()
+            .copied()
+            .find(|c| c.kind() == "relationship");
 
         let mut body = RcDoc::nil();
+        let mut has_body = false;
         for (i, end) in ends.iter().enumerate() {
             if i > 0 {
                 body = body.append(RcDoc::hardline());
@@ -437,6 +443,7 @@ impl<'a> Printer<'a> {
                 }
             }
             body = body.append(self.association_end(*end));
+            has_body = true;
         }
         if let Some(rel) = relationship {
             if !ends.is_empty() {
@@ -444,12 +451,10 @@ impl<'a> Printer<'a> {
                 body = body.append(RcDoc::hardline()).append(RcDoc::hardline());
             }
             body = body.append(self.relationship(rel));
+            has_body = true;
         }
 
-        RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(self.indent))
-            .append(RcDoc::hardline())
-            .append(RcDoc::text("}"))
+        self.braced_block(node, body, has_body)
     }
 
     fn association_end(&self, node: Node<'a>) -> Doc<'a> {
@@ -458,13 +463,10 @@ impl<'a> Printer<'a> {
         match order_by {
             None => head.append(RcDoc::text(";")),
             Some(ob) => {
-                // The orderBy clause is separated from the end by a space when it
-                // fits on the line, or a newline (indented two levels) when the
-                // whole end declaration is too wide. `group` picks per instance.
-                let clause = RcDoc::line()
+                let clause = RcDoc::hardline()
                     .append(self.order_by_declaration(ob))
                     .nest(self.indent);
-                head.append(clause).append(RcDoc::text(";")).group()
+                head.append(clause).append(RcDoc::text(";"))
             }
         }
     }
@@ -507,7 +509,7 @@ impl<'a> Printer<'a> {
 
     fn relationship(&self, node: Node<'a>) -> Doc<'a> {
         let expr = self.child_of_kind(node, &["criteria_expression"]).unwrap();
-        RcDoc::text("relationship ").append(self.criteria_expression(expr))
+        RcDoc::text("relationship ").append(self.criteria_expression_with_comments(expr))
     }
 
     // ---- projection ----
@@ -546,7 +548,7 @@ impl<'a> Printer<'a> {
 
     fn projection_block(&self, node: Node<'a>) -> Doc<'a> {
         let members = self.named_children(node);
-        self.member_block(&members, |p, m| p.projection_member(m))
+        self.member_block(node, &members, |p, m| p.projection_member(m))
     }
 
     fn projection_member(&self, node: Node<'a>) -> MemberDoc<'a> {
@@ -570,7 +572,9 @@ impl<'a> Printer<'a> {
                 MemberDoc::aligned_with(name, RcDoc::text(self.text(header).to_string()), ",")
             }
             "projection_projection_reference" => {
-                let r = self.child_of_kind(inner, &["projection_reference"]).unwrap();
+                let r = self
+                    .child_of_kind(inner, &["projection_reference"])
+                    .unwrap();
                 MemberDoc::aligned_with(name, RcDoc::text(self.text(r).to_string()), ",")
             }
             "projection_reference_property" => {
@@ -621,11 +625,6 @@ impl<'a> Printer<'a> {
 
     fn service_group_block(&self, node: Node<'a>) -> Doc<'a> {
         let urls = self.named_children(node);
-        if urls.is_empty() {
-            return RcDoc::text("{")
-                .append(RcDoc::hardline())
-                .append(RcDoc::text("}"));
-        }
         let mut body = RcDoc::nil();
         for (i, url) in urls.iter().enumerate() {
             if i > 0 {
@@ -633,10 +632,7 @@ impl<'a> Printer<'a> {
             }
             body = body.append(self.url_declaration(*url));
         }
-        RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(self.indent))
-            .append(RcDoc::hardline())
-            .append(RcDoc::text("}"))
+        self.braced_block(node, body, !urls.is_empty())
     }
 
     fn url_declaration(&self, node: Node<'a>) -> Doc<'a> {
@@ -650,8 +646,11 @@ impl<'a> Printer<'a> {
         let mut doc = self.url(url);
         for svc in services {
             // Each verb block is indented one level under the url.
-            doc = doc
-                .append(RcDoc::hardline().append(self.service_declaration(svc)).nest(self.indent));
+            doc = doc.append(
+                RcDoc::hardline()
+                    .append(self.service_declaration(svc))
+                    .nest(self.indent),
+            );
         }
         doc
     }
@@ -706,13 +705,9 @@ impl<'a> Printer<'a> {
 
     fn service_block(&self, node: Node<'a>) -> Doc<'a> {
         let items = self.named_children(node);
-        if items.is_empty() {
-            return RcDoc::text("{")
-                .append(RcDoc::hardline())
-                .append(RcDoc::text("}"));
-        }
         // Service body clauses are colon-aligned (multiplicity/criteria/etc.).
-        let rendered: Vec<MemberDoc<'a>> = items.iter().map(|i| self.service_body_item(*i)).collect();
+        let rendered: Vec<MemberDoc<'a>> =
+            items.iter().map(|i| self.service_body_item(*i)).collect();
         let align_width = rendered
             .iter()
             .filter_map(|m| m.align_name.as_ref().map(|n| n.chars().count()))
@@ -725,10 +720,7 @@ impl<'a> Printer<'a> {
             }
             body = body.append(m.into_doc(align_width));
         }
-        RcDoc::text("{")
-            .append(RcDoc::hardline().append(body).nest(self.indent))
-            .append(RcDoc::hardline())
-            .append(RcDoc::text("}"))
+        self.braced_block(node, body, !items.is_empty())
     }
 
     fn service_body_item(&self, node: Node<'a>) -> MemberDoc<'a> {
@@ -748,7 +740,7 @@ impl<'a> Printer<'a> {
                 let expr = self.child_of_kind(node, &["criteria_expression"]).unwrap();
                 MemberDoc::aligned_with(
                     self.text(kw).to_string(),
-                    self.criteria_expression(expr),
+                    self.criteria_expression_with_comments(expr),
                     ";",
                 )
             }
@@ -794,7 +786,10 @@ impl<'a> Printer<'a> {
 
     fn order_by_path(&self, node: Node<'a>) -> Doc<'a> {
         let path = self
-            .child_of_kind(node, &["this_member_reference_path", "type_member_reference_path"])
+            .child_of_kind(
+                node,
+                &["this_member_reference_path", "type_member_reference_path"],
+            )
             .unwrap();
         let mut doc = RcDoc::text(self.member_path_text(path));
         if let Some(dir) = self.child_of_kind(node, &["order_by_direction"]) {
@@ -841,9 +836,13 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn criteria_expression_with_comments(&self, node: Node<'a>) -> Doc<'a> {
+        self.with_comments(node, self.criteria_expression(node))
+    }
+
     /// Binary `&&` / `||` chains. When the whole chain fits within the print
     /// width it stays on one line; otherwise each continuation operand moves to
-    /// its own line, leading with the operator, indented two levels (matching
+    /// its own line, leading with the operator, indented one level (matching
     /// the corpus and `experimentalOperatorPosition: start`).
     fn criteria_binary(&self, node: Node<'a>, op: &'static str) -> Doc<'a> {
         // Flatten a left-associative chain of the same operator into operands.
@@ -853,14 +852,13 @@ impl<'a> Printer<'a> {
         let first = operands.remove(0);
         let mut tail = RcDoc::nil();
         for operand in operands {
-            // `line()` becomes a space when flat, a newline when broken.
             tail = tail
-                .append(RcDoc::line())
+                .append(RcDoc::hardline())
                 .append(RcDoc::text(op))
                 .append(RcDoc::text(" "))
                 .append(operand);
         }
-        first.append(tail.nest(2 * self.indent)).group()
+        first.append(tail.nest(self.indent)).group()
     }
 
     fn flatten_criteria(&self, node: Node<'a>, op: &'static str, out: &mut Vec<Doc<'a>>) {
@@ -871,11 +869,11 @@ impl<'a> Printer<'a> {
             if left_inner.kind() == node.kind() {
                 self.flatten_criteria(left_inner, op, out);
             } else {
-                out.push(self.criteria_expression(left));
+                out.push(self.criteria_expression_with_comments(left));
             }
-            out.push(self.criteria_expression(right));
+            out.push(self.criteria_expression_with_comments(right));
         } else {
-            out.push(self.criteria_expression(node));
+            out.push(self.criteria_expression_with_comments(node));
         }
     }
 
@@ -950,14 +948,20 @@ impl<'a> Printer<'a> {
         let mut rest: Vec<String> = Vec::new();
         for child in &children[1..] {
             match child.kind() {
-                "primitive_type" | "enumeration_reference" => rest.push(self.text(*child).to_string()),
+                "primitive_type" | "enumeration_reference" => {
+                    rest.push(self.text(*child).to_string())
+                }
                 "multiplicity" => {
                     // Attach to preceding type token with no space.
                     if let Some(last) = rest.pop() {
                         let body = self.child_of_kind(*child, &["multiplicity_body"]).unwrap();
                         let lower = body.child_by_field_name("lower_bound").unwrap();
                         let upper = body.child_by_field_name("upper_bound").unwrap();
-                        rest.push(format!("{last}[{}..{}]", self.text(lower), self.text(upper)));
+                        rest.push(format!(
+                            "{last}[{}..{}]",
+                            self.text(lower),
+                            self.text(upper)
+                        ));
                     }
                 }
                 "parameter_modifier" => rest.push(self.text(*child).to_string()),
@@ -990,14 +994,10 @@ impl<'a> Printer<'a> {
     /// Renders a `{ ... }` block of members with the brace on its own line,
     /// one member per line indented by `INDENT`, applying colon alignment
     /// across the members that opt into it.
-    fn member_block<F>(&self, members: &[Node<'a>], render: F) -> Doc<'a>
+    fn member_block<F>(&self, node: Node<'a>, members: &[Node<'a>], render: F) -> Doc<'a>
     where
         F: Fn(&Self, Node<'a>) -> MemberDoc<'a>,
     {
-        if members.is_empty() {
-            return RcDoc::text("{").append(RcDoc::hardline()).append(RcDoc::text("}"));
-        }
-
         let rendered: Vec<MemberDoc<'a>> = members.iter().map(|m| render(self, *m)).collect();
 
         // Alignment column: the widest name among aligned members.
@@ -1017,6 +1017,27 @@ impl<'a> Printer<'a> {
                 }
             }
             body = body.append(self.with_comments(*node, m.into_doc(align_width)));
+        }
+
+        self.braced_block(node, body, !members.is_empty())
+    }
+
+    fn braced_block(&self, node: Node<'a>, mut body: Doc<'a>, mut has_body: bool) -> Doc<'a> {
+        for comment in self.comments.block_trailing(node) {
+            if has_body {
+                body = body.append(RcDoc::hardline());
+                if comment.blank_before {
+                    body = body.append(RcDoc::hardline());
+                }
+            }
+            body = body.append(self.comment_doc(comment));
+            has_body = true;
+        }
+
+        if !has_body {
+            return RcDoc::text("{")
+                .append(RcDoc::hardline())
+                .append(RcDoc::text("}"));
         }
 
         RcDoc::text("{")
@@ -1075,7 +1096,7 @@ impl<'a> Printer<'a> {
     /// Renders a single comment. Block comments keep their internal lines as-is
     /// (re-indentation of multi-line block comments is left to the author).
     fn comment_doc(&self, comment: &Comment) -> Doc<'a> {
-        let text = comment.text.clone();
+        let text = normalize_multiline_comment(&comment.text);
         if text.contains('\n') {
             // Preserve internal newlines with hardlines so nesting doesn't
             // collapse them; trailing whitespace is stripped globally later.
@@ -1115,15 +1136,27 @@ struct MemberDoc<'a> {
 
 impl<'a> MemberDoc<'a> {
     fn aligned(name: String, rest: Doc<'a>) -> Self {
-        MemberDoc { align_name: Some(name), rest, terminator: ";" }
+        MemberDoc {
+            align_name: Some(name),
+            rest,
+            terminator: ";",
+        }
     }
 
     fn aligned_with(name: String, rest: Doc<'a>, terminator: &'static str) -> Self {
-        MemberDoc { align_name: Some(name), rest, terminator }
+        MemberDoc {
+            align_name: Some(name),
+            rest,
+            terminator,
+        }
     }
 
     fn unaligned(doc: Doc<'a>) -> Self {
-        MemberDoc { align_name: None, rest: doc, terminator: "" }
+        MemberDoc {
+            align_name: None,
+            rest: doc,
+            terminator: "",
+        }
     }
 
     fn into_doc(self, align_width: usize) -> Doc<'a> {
@@ -1165,6 +1198,36 @@ fn intersperse_blank<'a>(docs: Vec<Doc<'a>>) -> Doc<'a> {
             .append(d);
     }
     acc
+}
+
+fn normalize_multiline_comment(text: &str) -> String {
+    if !text.contains('\n') {
+        return text.to_string();
+    }
+
+    let lines: Vec<&str> = text.split('\n').collect();
+    let Some(strip_count) = lines
+        .iter()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.chars().take_while(|c| c.is_whitespace()).count())
+        .min()
+    else {
+        return text.to_string();
+    };
+
+    let mut normalized = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            normalized.push('\n');
+        }
+        if index == 0 || line.trim().is_empty() {
+            normalized.push_str(line);
+            continue;
+        }
+        normalized.push_str(&line.chars().skip(strip_count).collect::<String>());
+    }
+    normalized
 }
 
 fn is_comment(node: Node) -> bool {

@@ -36,10 +36,100 @@ class Question
     let out = fmt(src);
     // Colons de-aligned, indentation switched to a tab.
     assert!(out.contains("\n\tid: Long key id;\n"), "got:\n{out}");
-    assert!(out.contains("\n\ttitle: String maxLength(150);\n"), "got:\n{out}");
+    assert!(
+        out.contains("\n\ttitle: String maxLength(150);\n"),
+        "got:\n{out}"
+    );
     // Fence and heading preserved.
     assert!(out.starts_with("# Doc\n\n```klass\n"));
     assert!(out.trim_end().ends_with("```"));
+}
+
+#[test]
+fn association_order_by_and_relationship_continuations_stay_on_own_lines() {
+    let src = "\
+```klass
+association QuestionHasAnswer
+{
+    question: Question[1..1] final;
+    answers: Answer[0..*] orderBy: this.id ascending;
+
+    relationship (this.id == Answer.questionId) && this.system == Answer.system // The additional clause
+}
+```
+";
+    let out = fmt(src);
+
+    assert!(
+        out.contains("\n\tanswers: Answer[0..*]\n\t\torderBy: this.id ascending;\n"),
+        "orderBy should stay on a continuation line:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "\n\trelationship (this.id == Answer.questionId)\n\t\t&& this.system == Answer.system // The additional clause\n"
+        ),
+        "relationship && should stay on a continuation line:\n{out}"
+    );
+}
+
+#[test]
+fn comments_in_empty_blocks_stay_inside_the_block() {
+    let src = "\
+```klass
+class Question
+    systemTemporal
+    versioned
+    audited
+{
+    // ...
+}
+
+// ...
+```
+";
+    let out = fmt(src);
+
+    assert!(
+        out.contains("\n{\n\t// ...\n}\n\n// ...\n"),
+        "block comment should stay inside the class body:\n{out}"
+    );
+    assert_eq!(
+        out.matches("\n// ...\n").count(),
+        1,
+        "file-tail comment should not be duplicated:\n{out}"
+    );
+}
+
+#[test]
+fn comments_in_parameterized_property_bodies_stay_inside_the_body() {
+    let src = "\
+```klass
+class Question
+{
+    voteByUser(userId: String[1..1] userId): QuestionVote[0..1]
+    {
+        // userId refers to the parameter, not the global
+        this.votes.createdById == userId
+    }
+}
+
+// userId refers to the parameter, not the global
+```
+";
+    let out = fmt(src);
+
+    assert!(
+        out.contains(
+            "\n\tvoteByUser(userId: String[1..1] userId): QuestionVote[0..1]\n\t{\n\t\t// userId refers to the parameter, not the global\n\t\tthis.votes.createdById == userId\n\t}\n"
+        ),
+        "criteria-body comment should stay inside the parameterized property:\n{out}"
+    );
+    assert_eq!(
+        out.matches("\n// userId refers to the parameter, not the global\n")
+            .count(),
+        1,
+        "file-tail comment should not be duplicated:\n{out}"
+    );
 }
 
 #[test]
@@ -65,11 +155,17 @@ More prose.
     let out = fmt(src);
 
     // The json block and all prose lines survive unchanged.
-    assert!(out.contains("```json\n{ \"a\": 1 }\n```"), "json fence changed:\n{out}");
+    assert!(
+        out.contains("```json\n{ \"a\": 1 }\n```"),
+        "json fence changed:\n{out}"
+    );
     assert!(out.contains("Some **prose** with `inline code` and a klass word that is not a fence."));
     assert!(out.contains("\nMore prose.\n"));
     // Only the klass block changed: it now uses a tab.
-    assert!(out.contains("\n\tid: Long key;\n"), "klass not formatted:\n{out}");
+    assert!(
+        out.contains("\n\tid: Long key;\n"),
+        "klass not formatted:\n{out}"
+    );
 }
 
 #[test]
@@ -101,9 +197,18 @@ fn indented_fence_keeps_its_offset() {
 ";
     let out = fmt(src);
     // Content stays indented 2 spaces; the property is indented 2 + one tab.
-    assert!(out.contains("\n  ```klass\n"), "opening fence offset lost:\n{out}");
-    assert!(out.contains("\n  \tid: Long key;\n"), "content offset/tab wrong:\n{out}");
-    assert!(out.contains("\n  ```\n"), "closing fence offset lost:\n{out}");
+    assert!(
+        out.contains("\n  ```klass\n"),
+        "opening fence offset lost:\n{out}"
+    );
+    assert!(
+        out.contains("\n  \tid: Long key;\n"),
+        "content offset/tab wrong:\n{out}"
+    );
+    assert!(
+        out.contains("\n  ```\n"),
+        "closing fence offset lost:\n{out}"
+    );
 }
 
 #[test]
@@ -117,7 +222,10 @@ class C
 ```
 ";
     let out = fmt(src);
-    assert!(out.contains("\n\tid: Long key;\n"), "attributed fence not formatted:\n{out}");
+    assert!(
+        out.contains("\n\tid: Long key;\n"),
+        "attributed fence not formatted:\n{out}"
+    );
     // The info string itself is preserved on the fence line.
     assert!(out.starts_with("```klass title=\"example\"\n"));
 }
@@ -133,7 +241,10 @@ class C
 ~~~
 ";
     let out = fmt(src);
-    assert!(out.contains("\n\tid: Long key;\n"), "tilde fence not formatted:\n{out}");
+    assert!(
+        out.contains("\n\tid: Long key;\n"),
+        "tilde fence not formatted:\n{out}"
+    );
     assert!(out.starts_with("~~~klass\n"));
     assert!(out.trim_end().ends_with("~~~"));
 }
@@ -169,8 +280,8 @@ fn real_doc_fixtures_format_and_are_idempotent() {
 #[test]
 fn real_doc_fixture_changes_only_klass_blocks() {
     // For 1_classes.md, every changed line must be inside a klass fence.
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/markdown/part1__1_classes.md");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/markdown/part1__1_classes.md");
     let src = fs::read_to_string(&path).unwrap();
     let out = fmt(&src);
 

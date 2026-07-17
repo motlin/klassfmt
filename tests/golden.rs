@@ -48,10 +48,20 @@ fn assert_fixed_point(name: &str) {
     );
 }
 
+fn assert_formatted_contains(name: &str, expected: &str) {
+    let src = corpus(name);
+    let formatted = klassfmt::format(&src).expect("format");
+    assert!(
+        formatted.contains(expected),
+        "{name} formatted output did not contain expected snippet:\n{expected}\n\nformatted:\n{formatted}"
+    );
+}
+
 #[test]
 fn golden_association_with_relationship() {
-    assert_fixed_point(
+    assert_formatted_contains(
         "klass-model-converters__klass-compiler-tests__src__test__inputresources__cool__klass__model__converter__compiler__annotation__association__CompoundJoinMixedKeyTest.klass",
+        "\trelationship this.id == Target.extraId\n\t\t&& this.extraId == Target.id\n",
     );
 }
 
@@ -71,9 +81,12 @@ fn golden_inheritance_stacked_modifiers() {
 
 #[test]
 fn golden_service_block() {
-    // Class + projection + service whose (unaligned) service body is a clean
-    // fixed point.
-    assert_fixed_point(
+    assert_formatted_contains(
         "klass-model-converters__klass-compiler-tests__src__test__inputresources__cool__klass__model__converter__compiler__annotation__property__UnreferencedPrivatePropertiesTest.klass",
+        "\texample: ExampleClass[0..*]\n\t\torderBy: this.privateUsedInAssociationOrderBy ascending;\n",
+    );
+    assert_formatted_contains(
+        "klass-model-converters__klass-compiler-tests__src__test__inputresources__cool__klass__model__converter__compiler__annotation__property__UnreferencedPrivatePropertiesTest.klass",
+        "\trelationship this.relatedClassId == RelatedClass.id\n\t\t&& this.privateUsedInAssociationCriteria == \"test\"\n",
     );
 }

@@ -36,6 +36,7 @@ pub struct Comment {
 pub struct CommentMap {
     leading: HashMap<usize, Vec<Comment>>,
     trailing: HashMap<usize, Vec<Comment>>,
+    block_trailing: HashMap<usize, Vec<Comment>>,
     /// Standalone comments after the last declaration (own line at EOF).
     trailing_file: Vec<Comment>,
 }
@@ -51,6 +52,9 @@ impl CommentMap {
         let mut anchors: Vec<Node> = Vec::new();
         collect_anchors(root, &mut anchors);
         anchors.sort_by_key(|n| n.start_byte());
+        let mut blocks: Vec<Node> = Vec::new();
+        collect_blocks(root, &mut blocks);
+        blocks.sort_by_key(|n| n.start_byte());
 
         for comment in comments {
             let c_start = comment.start_byte();
@@ -83,15 +87,27 @@ impl CommentMap {
             // Leading: attach to the next named node starting at or after the
             // comment's end. Prefer the smallest such node (deepest/closest).
             let blank_before = blank_between(source, prev_content_end(source, c_start), c_start);
+            if let Some(block) = innermost_containing_block(&blocks, c_start, c_end) {
+                let next_anchor_in_block = anchors
+                    .iter()
+                    .any(|n| n.start_byte() >= c_end && n.end_byte() <= block.end_byte());
+                if !next_anchor_in_block {
+                    map.block_trailing
+                        .entry(block.id())
+                        .or_default()
+                        .push(Comment { text, blank_before });
+                    continue;
+                }
+            }
             if let Some(anchor) = anchors
                 .iter()
                 .filter(|n| n.start_byte() >= c_end)
                 .min_by_key(|n| (n.start_byte(), n.end_byte()))
             {
-                map.leading.entry(anchor.id()).or_default().push(Comment {
-                    text,
-                    blank_before,
-                });
+                map.leading
+                    .entry(anchor.id())
+                    .or_default()
+                    .push(Comment { text, blank_before });
             } else {
                 // No following node. A comment that stood on its own line at EOF
                 // stays a standalone trailing-file comment; a same-line one
@@ -104,11 +120,24 @@ impl CommentMap {
     }
 
     pub fn leading(&self, node: Node) -> &[Comment] {
-        self.leading.get(&node.id()).map(|v| v.as_slice()).unwrap_or(&[])
+        self.leading
+            .get(&node.id())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn trailing(&self, node: Node) -> &[Comment] {
-        self.trailing.get(&node.id()).map(|v| v.as_slice()).unwrap_or(&[])
+        self.trailing
+            .get(&node.id())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn block_trailing(&self, node: Node) -> &[Comment] {
+        self.block_trailing
+            .get(&node.id())
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn trailing_file(&self) -> &[Comment] {
@@ -151,6 +180,7 @@ const ANCHOR_KINDS: &[&str] = &[
     "service_criteria_declaration",
     "service_projection_dispatch",
     "service_order_by_declaration",
+    "criteria_expression",
 ];
 
 /// Collects the anchor nodes (of [`ANCHOR_KINDS`]) that a comment may attach to.
@@ -165,6 +195,41 @@ fn collect_anchors<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
         }
         collect_anchors(child, out);
     }
+}
+
+const BLOCK_KINDS: &[&str] = &[
+    "class_block",
+    "interface_block",
+    "enumeration_block",
+    "association_block",
+    "projection_block",
+    "service_group_block",
+    "service_block",
+];
+
+fn collect_blocks<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        if is_comment(child) {
+            continue;
+        }
+        if BLOCK_KINDS.contains(&child.kind()) {
+            out.push(child);
+        }
+        collect_blocks(child, out);
+    }
+}
+
+fn innermost_containing_block<'a>(
+    blocks: &[Node<'a>],
+    start_byte: usize,
+    end_byte: usize,
+) -> Option<Node<'a>> {
+    blocks
+        .iter()
+        .copied()
+        .filter(|b| b.start_byte() <= start_byte && b.end_byte() >= end_byte)
+        .min_by_key(|b| b.end_byte() - b.start_byte())
 }
 
 /// The byte offset just past the previous non-whitespace content before `pos`.
