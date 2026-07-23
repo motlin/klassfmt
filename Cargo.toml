@@ -8,7 +8,7 @@ description = "A standalone formatter for the Klass DSL"
 path = "src/lib.rs"
 
 [dependencies]
-tree-sitter = "0.22"
+tree-sitter = "0.26"
 pretty = "0.12"
 similar = "2"
 clap = { version = "4", features = ["derive"] }
