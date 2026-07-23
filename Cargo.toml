@@ -10,7 +10,7 @@ path = "src/lib.rs"
 [dependencies]
 tree-sitter = "0.26"
 pretty = "0.12"
-similar = "2"
+similar = "3"
 clap = { version = "4", features = ["derive"] }
 
 [[bin]]
