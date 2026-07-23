@@ -453,7 +453,7 @@ impl<'a> Printer<'a> {
 					body = body.append(RcDoc::hardline());
 				}
 			}
-			body = body.append(self.association_end(*end));
+			body = body.append(self.with_comments(*end, self.association_end(*end)));
 			has_body = true;
 		}
 		if let Some(rel) = relationship {
@@ -461,7 +461,7 @@ impl<'a> Printer<'a> {
 				// Blank line between ends and the relationship clause.
 				body = body.append(RcDoc::hardline()).append(RcDoc::hardline());
 			}
-			body = body.append(self.relationship(rel));
+			body = body.append(self.with_comments(rel, self.relationship(rel)));
 			has_body = true;
 		}
 
@@ -641,7 +641,7 @@ impl<'a> Printer<'a> {
 			if i > 0 {
 				body = body.append(RcDoc::hardline());
 			}
-			body = body.append(self.url_declaration(*url));
+			body = body.append(self.with_comments(*url, self.url_declaration(*url)));
 		}
 		self.braced_block(node, body, !urls.is_empty())
 	}
@@ -725,11 +725,11 @@ impl<'a> Printer<'a> {
 			.max()
 			.unwrap_or(0);
 		let mut body = RcDoc::nil();
-		for (i, m) in rendered.into_iter().enumerate() {
+		for (i, (m, item)) in rendered.into_iter().zip(items.iter()).enumerate() {
 			if i > 0 {
 				body = body.append(RcDoc::hardline());
 			}
-			body = body.append(m.into_doc(align_width));
+			body = body.append(self.with_comments(*item, m.into_doc(align_width)));
 		}
 		self.braced_block(node, body, !items.is_empty())
 	}
