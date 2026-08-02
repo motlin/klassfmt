@@ -22,34 +22,29 @@ pub fn language() -> Language {
 	unsafe { tree_sitter_klass() }
 }
 
-/// The maximum line width the printer targets before wrapping.
-///
-/// Matches the klass repo's `.prettierrc.json5` `printWidth`.
-pub const DEFAULT_PRINT_WIDTH: usize = 120;
-
 /// The default number of columns one indentation level occupies.
 ///
 /// Matches the klass repo's `.prettierrc.json5` `tabWidth`.
 pub const DEFAULT_TAB_WIDTH: usize = 4;
 
 /// Formatting configuration. Defaults match the klass repo's `.prettierrc.json5`
-/// (`printWidth: 120`, `useTabs: true`, `tabWidth: 4`), so the corpus's
-/// tab-indented convention is reproduced.
+/// (`useTabs: true`, `tabWidth: 4`), so the corpus's tab-indented convention is
+/// reproduced.
+///
+/// There is no print-width setting: wrapping is unconditional rather than
+/// width-driven, so output never depends on how long a line would have been.
+/// See the module docs in `printer.rs`.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
-	/// Maximum line width before wrapping.
-	pub print_width: usize,
 	/// Indent with a tab per level when true; otherwise `tab_width` spaces.
 	pub use_tabs: bool,
-	/// Columns per indentation level (also the visual width of a tab, used for
-	/// wrapping math).
+	/// Columns per indentation level (also the visual width of a tab).
 	pub tab_width: usize,
 }
 
 impl Default for Config {
 	fn default() -> Self {
 		Config {
-			print_width: DEFAULT_PRINT_WIDTH,
 			use_tabs: true,
 			tab_width: DEFAULT_TAB_WIDTH,
 		}
@@ -80,18 +75,6 @@ impl std::error::Error for FormatError {}
 /// Formats Klass source text using the default configuration.
 pub fn format(source: &str) -> Result<String, FormatError> {
 	format_with_config(source, Config::default())
-}
-
-/// Formats Klass source text, wrapping at `width` columns (other settings
-/// default). Retained for convenience; prefer [`format_with_config`].
-pub fn format_with_width(source: &str, width: usize) -> Result<String, FormatError> {
-	format_with_config(
-		source,
-		Config {
-			print_width: width,
-			..Config::default()
-		},
-	)
 }
 
 /// Formats Klass source text with the given [`Config`].

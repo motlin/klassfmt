@@ -44,14 +44,25 @@ apply to both `.klass` and Markdown inputs, and a single invocation may mix them
 
 ### Options
 
-| Flag                       | Default | Meaning                                                          |
-| -------------------------- | ------- | ---------------------------------------------------------------- |
-| `--print-width <n>`        | `120`   | Column width the printer wraps at.                               |
-| `--use-tabs [true\|false]` | `true`  | Indent with a tab per level (or `--use-tabs false` for spaces).  |
-| `--tab-width <n>`          | `4`     | Columns per indentation level (tab display width for wrap math). |
-| `--markdown`               | off     | Force Markdown mode regardless of file extension.                |
+| Flag                       | Default | Meaning                                                         |
+| -------------------------- | ------- | --------------------------------------------------------------- |
+| `--use-tabs [true\|false]` | `true`  | Indent with a tab per level (or `--use-tabs false` for spaces). |
+| `--tab-width <n>`          | `4`     | Columns per indentation level (tab display width).              |
+| `--markdown`               | off     | Force Markdown mode regardless of file extension.               |
 
 Defaults match the Klass repo's `.prettierrc.json5`.
+
+### Wrapping is not width-based
+
+There is no `--print-width`. Wrapping decisions never depend on how long a line
+would be: a construct that can break always breaks. A criteria chain with more
+than one operand puts each operand on its own line, and a multi-path `orderBy`
+puts each path on its own line, even when the flat form would easily fit.
+
+This is deliberate. Width-driven wrapping makes formatting non-local — adding a
+character to one operand can reflow the whole expression, so unrelated lines
+churn in diffs. Unconditional breaking keeps every construct's shape a function
+of its own structure alone.
 
 ## Pre-commit hook
 

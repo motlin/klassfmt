@@ -35,10 +35,6 @@ struct Cli {
 	#[arg(long = "stdin-filepath", value_name = "PATH")]
 	stdin_filepath: Option<PathBuf>,
 
-	/// Maximum line width before wrapping.
-	#[arg(long, default_value_t = klassfmt::DEFAULT_PRINT_WIDTH)]
-	print_width: usize,
-
 	/// Indent with tabs (default). Pass `--use-tabs false` to indent with spaces.
 	#[arg(
         long,
@@ -49,7 +45,7 @@ struct Cli {
     )]
 	use_tabs: bool,
 
-	/// Columns per indentation level (tab display width for wrapping math).
+	/// Columns per indentation level (tab display width).
 	#[arg(long, default_value_t = klassfmt::DEFAULT_TAB_WIDTH)]
 	tab_width: usize,
 
@@ -66,7 +62,6 @@ struct Cli {
 impl Cli {
 	fn config(&self) -> klassfmt::Config {
 		klassfmt::Config {
-			print_width: self.print_width,
 			use_tabs: self.use_tabs,
 			tab_width: self.tab_width,
 		}

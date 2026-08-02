@@ -115,6 +115,36 @@ fn preserves_comments_inside_service_blocks() {
 }
 
 #[test]
+fn wrapping_is_unconditional_not_width_based() {
+	// Guard against reintroducing width-sensitive layout. Both constructs below
+	// are far shorter than any plausible print width, and both must still break:
+	// a criteria chain puts each operand on its own line, and a multi-path
+	// orderBy puts each path on its own line. Formatting must be a function of
+	// structure alone so an edit on one line cannot reflow its neighbours.
+	let input = "package p\n\
+	             association A\n\
+	             {\n\
+	             one: C[1..1];\n\
+	             many: C[0..*]\n\
+	             orderBy: this.a, this.b;\n\
+	             relationship this.x == C.x && this.y == C.y\n\
+	             }\n";
+	let expected = "package p\n\
+	                \n\
+	                association A\n\
+	                {\n\
+	                \tone: C[1..1];\n\
+	                \tmany: C[0..*]\n\
+	                \t\torderBy: this.a,\n\
+	                \t\tthis.b;\n\
+	                \n\
+	                \trelationship this.x == C.x\n\
+	                \t\t&& this.y == C.y\n\
+	                }\n";
+	assert_formats(input, expected);
+}
+
+#[test]
 fn use_tabs_false_indents_with_spaces() {
 	use klassfmt::Config;
 	let input = "package p\nclass C{id:Long key;}\n";

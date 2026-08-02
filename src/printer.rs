@@ -1,16 +1,15 @@
 //! CST -> `Doc` IR -> text.
 //!
-//! The style target is the canonical corpus. Most of the layout is a
-//! deterministic vertical stack (one member per line, brace on its own line),
-//! so the printer leans on hardlines and explicit indentation. The `pretty`
-//! crate's `group`/`nest` machinery is reserved for the constructs that
-//! actually reflow to fit the print width: criteria expressions, `orderBy`
-//! lists, and long parameter/argument lists.
+//! The style target is the canonical corpus. The layout is a deterministic
+//! vertical stack (one member per line, brace on its own line), so the printer
+//! uses hardlines and explicit indentation throughout.
 //!
-//! Colon alignment (padding member names so their `:` line up within a block)
-//! is a corpus hallmark that a Wadler printer cannot express directly; it is
-//! computed during lowering by measuring sibling members and emitting padded
-//! text literals.
+//! Wrapping is deliberately *not* sensitive to line width: a construct that can
+//! break always breaks, regardless of how short it is. A criteria chain with
+//! more than one operand puts each operand on its own line, and a multi-path
+//! `orderBy` puts each path on its own line, whether or not the flat form would
+//! have fit. This keeps output stable under edits, so a change on one line
+//! cannot reflow its neighbours.
 
 use pretty::RcDoc;
 use tree_sitter::Node;
@@ -24,6 +23,12 @@ use crate::Config;
 /// Sentinel prefixing verbatim block-comment interior lines, so the render
 /// post-pass emits them untouched. A NUL cannot appear in Klass source.
 const VERBATIM_MARK: char = '\u{0}';
+
+/// Width handed to `pretty` when rendering. The `Doc` tree contains no
+/// width-sensitive constructs — every break is a `hardline` or an ungrouped
+/// `line`, both of which break unconditionally — so this value cannot affect
+/// the output. It is large enough that nothing is ever measured as overflowing.
+const RENDER_WIDTH: usize = 1_000_000;
 
 /// Renders the whole compilation unit to a formatted string.
 pub(crate) fn print(root: Node, source: &str, config: Config) -> String {
@@ -39,7 +44,7 @@ pub(crate) fn print(root: Node, source: &str, config: Config) -> String {
 	// in `tab_width`-column units. Leading space-indentation is converted to
 	// tabs afterward when `use_tabs` is set.
 	let mut out = String::new();
-	doc.render_fmt(config.print_width, &mut out)
+	doc.render_fmt(RENDER_WIDTH, &mut out)
 		.expect("render to String");
 
 	let mut result = String::with_capacity(out.len());
@@ -716,20 +721,14 @@ impl<'a> Printer<'a> {
 
 	fn service_block(&self, node: Node<'a>) -> Doc<'a> {
 		let items = self.named_children(node);
-		// Service body clauses are colon-aligned (multiplicity/criteria/etc.).
 		let rendered: Vec<MemberDoc<'a>> =
 			items.iter().map(|i| self.service_body_item(*i)).collect();
-		let align_width = rendered
-			.iter()
-			.filter_map(|m| m.align_name.as_ref().map(|n| n.chars().count()))
-			.max()
-			.unwrap_or(0);
 		let mut body = RcDoc::nil();
 		for (i, (m, item)) in rendered.into_iter().zip(items.iter()).enumerate() {
 			if i > 0 {
 				body = body.append(RcDoc::hardline());
 			}
-			body = body.append(self.with_comments(*item, m.into_doc(align_width)));
+			body = body.append(self.with_comments(*item, m.into_doc()));
 		}
 		self.braced_block(node, body, !items.is_empty())
 	}
@@ -781,10 +780,10 @@ impl<'a> Printer<'a> {
 			.filter(|c| c.kind() == "order_by_member_reference_path")
 			.map(|c| self.order_by_path(c))
 			.collect();
-		// "orderBy: " then comma-separated paths. When broken, each subsequent
-		// path lands on its own line at the same indent as "orderBy" (the paths
-		// are not further indented past the keyword). The caller wraps this in a
-		// group so it stays inline when it fits.
+		// "orderBy: " then comma-separated paths. Each path after the first lands
+		// on its own line at the same indent as "orderBy" (the paths are not
+		// further indented past the keyword). This break is unconditional: it is
+		// not wrapped in a group, so a short multi-path list still stacks.
 		let mut doc = RcDoc::text("orderBy: ");
 		for (i, p) in paths.into_iter().enumerate() {
 			if i > 0 {
@@ -851,10 +850,10 @@ impl<'a> Printer<'a> {
 		self.with_comments(node, self.criteria_expression(node))
 	}
 
-	/// Binary `&&` / `||` chains. When the whole chain fits within the print
-	/// width it stays on one line; otherwise each continuation operand moves to
-	/// its own line, leading with the operator, indented one level (matching
-	/// the corpus and `experimentalOperatorPosition: start`).
+	/// Binary `&&` / `||` chains. Every continuation operand moves to its own
+	/// line, leading with the operator, indented one level (matching the corpus
+	/// and `experimentalOperatorPosition: start`). The break is unconditional,
+	/// so a two-operand chain stacks even when it would fit on one line.
 	fn criteria_binary(&self, node: Node<'a>, op: &'static str) -> Doc<'a> {
 		// Flatten a left-associative chain of the same operator into operands.
 		let mut operands: Vec<Doc<'a>> = Vec::new();
@@ -869,7 +868,7 @@ impl<'a> Printer<'a> {
 				.append(RcDoc::text(" "))
 				.append(operand);
 		}
-		first.append(tail.nest(self.indent)).group()
+		first.append(tail.nest(self.indent))
 	}
 
 	fn flatten_criteria(&self, node: Node<'a>, op: &'static str, out: &mut Vec<Doc<'a>>) {
@@ -1002,21 +1001,13 @@ impl<'a> Printer<'a> {
 
 	// ---- shared block machinery ----
 
-	/// Renders a `{ ... }` block of members with the brace on its own line,
-	/// one member per line indented by `INDENT`, applying colon alignment
-	/// across the members that opt into it.
+	/// Renders a `{ ... }` block of members with the brace on its own line and
+	/// one member per line indented by `INDENT`.
 	fn member_block<F>(&self, node: Node<'a>, members: &[Node<'a>], render: F) -> Doc<'a>
 	where
 		F: Fn(&Self, Node<'a>) -> MemberDoc<'a>,
 	{
 		let rendered: Vec<MemberDoc<'a>> = members.iter().map(|m| render(self, *m)).collect();
-
-		// Alignment column: the widest name among aligned members.
-		let align_width = rendered
-			.iter()
-			.filter_map(|m| m.align_name.as_ref().map(|n| n.chars().count()))
-			.max()
-			.unwrap_or(0);
 
 		let mut body = RcDoc::nil();
 		for (i, (m, node)) in rendered.into_iter().zip(members.iter()).enumerate() {
@@ -1027,7 +1018,7 @@ impl<'a> Printer<'a> {
 					body = body.append(RcDoc::hardline());
 				}
 			}
-			body = body.append(self.with_comments(*node, m.into_doc(align_width)));
+			body = body.append(self.with_comments(*node, m.into_doc()));
 		}
 
 		self.braced_block(node, body, !members.is_empty())
@@ -1187,14 +1178,12 @@ impl<'a> MemberDoc<'a> {
 		}
 	}
 
-	fn into_doc(self, align_width: usize) -> Doc<'a> {
+	fn into_doc(self) -> Doc<'a> {
 		// Colon alignment is deliberately NOT applied: the corpus is internally
 		// inconsistent (82 of 117 files never align; the 35 that do align to
 		// hand-chosen, non-reproducible widths, and some files mix both styles
 		// within one block). The canonical, deterministic choice that matches
-		// the majority is a single space after the name. `align_width` is
-		// retained in the signature for a possible future opt-in.
-		let _ = align_width;
+		// the majority is a single space after the name.
 		match self.align_name {
 			Some(name) => RcDoc::text(name)
 				.append(RcDoc::text(": "))
