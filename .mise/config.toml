@@ -1,8 +1,8 @@
 [tools]
-just = "1.56.0"
+just = "1.57.0"
 rust = { version = "1.97.1", components = "clippy,rustfmt,llvm-tools" }
 pre-commit = "4.6.1"
-node = "26.2.0"
+node = "26.5.0"
 "npm:markdownlint-cli2" = "0.23.2"
 "npm:vite-plus" = "0.2.6"
 "aqua:nextest-rs/nextest/cargo-nextest" = "0.9.140"
