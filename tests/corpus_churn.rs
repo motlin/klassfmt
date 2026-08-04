@@ -209,6 +209,63 @@ fn churn() {
 	}
 }
 
+/// Collects every comment's text from a parsed source, in source order.
+fn comment_texts(source: &str) -> Vec<String> {
+	let mut parser = Parser::new();
+	parser.set_language(&klassfmt::language()).unwrap();
+	let tree = parser.parse(source, None).expect("parse");
+	let mut out = Vec::new();
+	let mut cursor = tree.root_node().walk();
+	let mut stack = vec![tree.root_node()];
+	while let Some(node) = stack.pop() {
+		if matches!(node.kind(), "line_comment" | "block_comment") {
+			out.push(node.utf8_text(source.as_bytes()).unwrap().to_string());
+		}
+		let children: Vec<Node> = node.children(&mut cursor).collect();
+		for c in children {
+			stack.push(c);
+		}
+	}
+	out.sort();
+	out
+}
+
+/// A formatter must never delete a comment. Formatting is allowed to move a
+/// comment or re-indent it, but every comment in the input must still be
+/// present in the output, byte-for-byte. Unlike `no_churn` this is a real
+/// invariant rather than a style preference, so it is not ignored.
+///
+/// Regression: comments attached to association ends, `relationship` clauses,
+/// service urls, and service body clauses were silently dropped, because those
+/// printer paths bypassed the comment-emitting wrapper.
+#[test]
+fn comments_are_never_dropped() {
+	let mut failures = Vec::new();
+	for path in corpus_files() {
+		let src = fs::read_to_string(&path).unwrap();
+		let Ok(formatted) = klassfmt::format(&src) else {
+			continue;
+		};
+		let before = comment_texts(&src);
+		let after = comment_texts(&formatted);
+		if before != after {
+			let name = path.file_name().unwrap().to_string_lossy().to_string();
+			let missing: Vec<&String> = before.iter().filter(|c| !after.contains(c)).collect();
+			failures.push(format!(
+				"{name}: {} comments in, {} out; missing: {missing:?}",
+				before.len(),
+				after.len()
+			));
+		}
+	}
+	assert!(
+		failures.is_empty(),
+		"{} file(s) lost comments when formatted:\n{}",
+		failures.len(),
+		failures.join("\n")
+	);
+}
+
 /// The hard fidelity gate: every corpus file is already a fixed point of the
 /// formatter, modulo the intended space->tab indentation switch and colon
 /// alignment. Ignored: the corpus fixtures are hand-formatted and internally
