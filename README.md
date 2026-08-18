@@ -44,11 +44,12 @@ apply to both `.klass` and Markdown inputs, and a single invocation may mix them
 
 ### Options
 
-| Flag                       | Default | Meaning                                                         |
-| -------------------------- | ------- | --------------------------------------------------------------- |
-| `--use-tabs [true\|false]` | `true`  | Indent with a tab per level (or `--use-tabs false` for spaces). |
-| `--tab-width <n>`          | `4`     | Columns per indentation level (tab display width).              |
-| `--markdown`               | off     | Force Markdown mode regardless of file extension.               |
+| Flag                              | Default | Meaning                                                         |
+| --------------------------------- | ------- | --------------------------------------------------------------- |
+| `--use-tabs [true\|false]`        | `true`  | Indent with a tab per level (or `--use-tabs false` for spaces). |
+| `--tab-width <n>`                 | `4`     | Columns per indentation level (tab display width).              |
+| `--markdown`                      | off     | Force Markdown mode regardless of file extension.               |
+| `--no-error-on-unmatched-pattern` | off     | Exit successfully when no file paths are provided.              |
 
 Defaults match the Klass repo's `.prettierrc.json5`.
 
@@ -93,9 +94,10 @@ fail the commit without modifying files.
 
       - id: klassfmt-markdown
         name: klassfmt (format ```klass fences in Markdown)
-        entry: klassfmt --markdown --write
+        entry: klassfmt --markdown --write --no-error-on-unmatched-pattern
         language: system
         files: '\.(md|markdown)$'
+        pass_filenames: true
 ````
 
 Install the hooks with `pre-commit install`. To run them across the whole

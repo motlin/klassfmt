@@ -31,6 +31,10 @@ struct Cli {
 	#[arg(long = "list-different", conflicts_with_all = ["check", "write"])]
 	list_different: bool,
 
+	/// Exit successfully when no file paths are provided instead of reading stdin.
+	#[arg(long)]
+	no_error_on_unmatched_pattern: bool,
+
 	/// Format stdin as if it were this file, writing the result to stdout.
 	#[arg(long = "stdin-filepath", value_name = "PATH")]
 	stdin_filepath: Option<PathBuf>,
@@ -93,6 +97,9 @@ impl Cli {
 fn main() -> ExitCode {
 	let cli = Cli::parse();
 
+	if cli.no_error_on_unmatched_pattern && cli.stdin_filepath.is_none() && cli.paths.is_empty() {
+		return ExitCode::SUCCESS;
+	}
 	if cli.stdin_filepath.is_some() || cli.paths.is_empty() {
 		return run_stdin(&cli);
 	}
