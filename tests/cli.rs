@@ -40,6 +40,17 @@ fn stdin_filepath_formats_to_stdout() {
 }
 
 #[test]
+fn no_error_on_unmatched_pattern_succeeds_without_paths() {
+	assert_eq!(
+		run(
+			&["--write", "--no-error-on-unmatched-pattern"],
+			"invalid test input",
+		),
+		(String::new(), 0),
+	);
+}
+
+#[test]
 fn check_reports_and_exits_nonzero_on_difference() {
 	let dir = tempdir();
 	let path = dir.join("messy.klass");
