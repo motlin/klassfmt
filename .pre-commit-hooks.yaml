@@ -1,0 +1,15 @@
+- id: klassfmt
+  name: klassfmt (format .klass files)
+  description: Format Klass source files.
+  entry: klassfmt --write
+  language: rust
+  files: '\.klass$'
+  pass_filenames: true
+
+- id: klassfmt-markdown
+  name: klassfmt (format ```klass fences in Markdown)
+  description: Format Klass code fences in Markdown files.
+  entry: klassfmt --markdown --write --no-error-on-unmatched-pattern
+  language: rust
+  files: '\.(md|markdown)$'
+  pass_filenames: true

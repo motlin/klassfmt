@@ -10,6 +10,12 @@ prose and every other fence untouched.
 
 ## Usage
 
+Install the latest tagged version from GitHub:
+
+```sh
+cargo install --locked --git https://github.com/motlin/klassfmt --tag v0.1.0
+```
+
 ```sh
 # Format a file to stdout
 klassfmt path/to/model.klass
@@ -67,38 +73,18 @@ of its own structure alone.
 
 ## Pre-commit hook
 
-`klassfmt` can be wired into [pre-commit](https://pre-commit.com/) as a `local`
-hook so that both `.klass` files and the ` ```klass ` fences inside Markdown are
-formatted (or checked) on every commit. Build the binary first:
+`klassfmt` can be wired into [pre-commit](https://pre-commit.com/) so that both
+`.klass` files and the ` ```klass ` fences inside Markdown are formatted on
+every commit. Pre-commit installs and caches the formatter from the tagged
+source, so projects and CI runners do not need to install it separately.
 
-```sh
-cargo install --path .   # installs `klassfmt` onto your PATH
-```
-
-Then add these hooks to your project's `.pre-commit-config.yaml`. The first
-formats `.klass` files; the second formats `klass` fences in Markdown. Use the
-`--write` variant to auto-format, or the `--check` variant (shown commented) to
-fail the commit without modifying files.
-
-````yaml
-- repo: local
+```yaml
+- repo: https://github.com/motlin/klassfmt
+  rev: v0.1.0
   hooks:
       - id: klassfmt
-        name: klassfmt (format .klass files)
-        entry: klassfmt --write
-        language: system
-        files: '\.klass$'
-        # For a check-only gate instead of auto-formatting, use:
-        # entry: klassfmt --check
-        # pass_filenames: true
-
       - id: klassfmt-markdown
-        name: klassfmt (format ```klass fences in Markdown)
-        entry: klassfmt --markdown --write --no-error-on-unmatched-pattern
-        language: system
-        files: '\.(md|markdown)$'
-        pass_filenames: true
-````
+```
 
 Install the hooks with `pre-commit install`. To run them across the whole
 repository once (e.g. right after adding the config):
@@ -107,9 +93,6 @@ repository once (e.g. right after adding the config):
 pre-commit run klassfmt --all-files
 pre-commit run klassfmt-markdown --all-files
 ```
-
-> This snippet is provided for you to add to a repository yourself; klassfmt does
-> not modify any other repo.
 
 ## Development
 
