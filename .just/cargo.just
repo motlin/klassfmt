@@ -37,4 +37,4 @@ coverage:
 # cargo run -- {{ARGS}}
 [group('run')]
 run *ARGS:
-    cargo run -- {{ARGS}}
+    cargo run -- {{ ARGS }}
