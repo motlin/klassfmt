@@ -41,11 +41,13 @@ repos:
         types: [rust]
         pass_filenames: false
       - id: oxfmt
-        name: vp fmt
+        name: oxfmt-next-line
         # Runs on all changed files; the flag makes oxfmt skip file types it
         # does not format instead of erroring when none in the batch match
-        entry: vp fmt --no-error-on-unmatched-pattern
+        entry: oxfmt-next-line --no-error-on-unmatched-pattern
         language: system
+        # Show "Finished in Xms on N files" so every run proves formatting happened.
+        verbose: true
       - id: markdownlint-cli2
         name: markdownlint-cli2
         entry: markdownlint-cli2
