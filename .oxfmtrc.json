@@ -11,7 +11,8 @@
 	"overrides": [
 		{
 			"files": [".yamllint.yaml", "**/*.yaml", "**/*.yml"],
-			"options": {
+			"options":
+			{
 				"useTabs": false,
 				"tabWidth": 2
 			}
